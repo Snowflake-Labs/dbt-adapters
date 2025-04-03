@@ -1,4 +1,4 @@
-{% macro run_hooks(hooks, inside_transaction=True, span_name='run_hooks') %}
+{% macro run_hooks(hooks, inside_transaction=True, span_name='run_hookss') %}
   {% for hook in hooks | selectattr('transaction', 'equalto', inside_transaction)  %}
     {% if not inside_transaction and loop.first %}
       {% call statement(auto_begin=inside_transaction) %}
