@@ -7,6 +7,7 @@ repos:
     hooks:
     -   id: check-yaml
         args: [--unsafe]
+        exclude: ^dbt-adapters/recipe/meta\.yaml|dbt-snowflake/recipe/meta\.yaml$
     -   id: end-of-file-fixer
     -   id: trailing-whitespace
     -   id: check-case-conflict
