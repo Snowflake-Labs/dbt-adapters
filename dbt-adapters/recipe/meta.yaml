@@ -1,0 +1,43 @@
+{% set name = "dbt-adapters" %}
+{% set version = "1.14.5s" %}
+
+package:
+  name: {{ name|lower }}
+  version: {{ version }}
+
+source:
+  path: ../
+
+build:
+  noarch: python
+  script: {{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
+  number: 0
+
+requirements:
+  host:
+    - python
+    - hatchling
+    - pip
+  run:
+    - python >=3.9
+    - dbt-common >=1.13,<2.0
+    - pytz >=2015.7
+    - agate >=1.0,<2.0
+    - mashumaro >=3.9,<3.15
+    - protobuf >=5.0,<6.0
+    - typing_extensions >=4.0,<5.0
+    # for mashumaro[msgpack]
+    - msgpack-python >=0.5.6
+
+test:
+  imports:
+    - dbt.adapters
+  commands:
+    - pip check
+  requires:
+    - python
+    - pip
+
+about:
+  home: https://github.com/dbt-labs/dbt-adapters
+  summary: The set of adapter protocols and base functionality that supports integration with dbt-core
