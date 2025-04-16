@@ -1,5 +1,5 @@
 {% set name = "dbt-adapters" %}
-{% set version = "1.14.5s" %}
+{% set version = "1.14.5b" %}
 
 package:
   name: {{ name|lower }}
