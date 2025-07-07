@@ -2,9 +2,9 @@ fixed:
   type: snowflake
 prompts:
   account:
-    hint: 'https://<this_value>.snowflakecomputing.com'
+    hint: 'https://<this_value>.snowflakecomputing.com (or set SNOWFLAKE_ACCOUNT env var)'
   user:
-    hint: 'dev username'
+    hint: 'dev username (or set SNOWFLAKE_USER env var)'
   _choose_authentication_type:
     password:
       password:
