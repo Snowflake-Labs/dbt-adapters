@@ -8,7 +8,7 @@
 ## Unreleased
 
 ### Features
-- Support optional account and user fields in profiles.yml with environment variable fallback. Account and user credentials can now be provided via SNOWFLAKE_ACCOUNT and SNOWFLAKE_USER environment variables, allowing for more flexible configuration in CI/CD environments and improved security by avoiding hardcoded credentials in profiles.yml. ([SNOW-2110797](https://github.com/dbt-labs/dbt-snowflake/issues/SNOW-2110797))
+- Support optional account and user fields in profiles.yml for default authenticator without password. When using the default authenticator (no `authenticator` field specified) without a password, `account` and `user` fields are now optional, allowing for authentication via environment variables or other external mechanisms. This provides more flexible configuration options while maintaining security requirements for other authentication methods. ([SNOW-2110797](https://github.com/dbt-labs/dbt-snowflake/issues/SNOW-2110797))
 
 ## Previous Releases
 For information on prior major and minor releases, see their changelogs:

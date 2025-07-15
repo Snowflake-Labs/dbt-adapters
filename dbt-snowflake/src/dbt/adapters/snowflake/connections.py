@@ -50,7 +50,7 @@ from dbt.adapters.contracts.connection import AdapterResponse, Connection, Crede
 from dbt.adapters.sql import SQLConnectionManager
 from dbt.adapters.events.logging import AdapterLogger
 from dbt_common.events.functions import warn_or_error
-from dbt.adapters.events.types import AdapterEventWarning
+from dbt.adapters.events.types import AdapterEventWarning, AdapterEventError
 from dbt_common.ui import line_wrap_message, warning_tag
 from dbt.adapters.snowflake.record import SnowflakeRecordReplayHandle
 
@@ -114,17 +114,6 @@ class SnowflakeCredentials(Credentials):
     reuse_connections: Optional[bool] = None
 
     def __post_init__(self):
-        # Try to get account and user from environment variables if not provided
-        if self.account is None:
-            self.account = os.getenv("SNOWFLAKE_ACCOUNT")
-        if self.user is None:
-            self.user = os.getenv("SNOWFLAKE_USER")
-
-        # Validate that account is available (either from profile or environment)
-        if not self.account:
-            raise DbtConfigError(
-                "Invalid profile: 'account' is required. Please provide it in your profile or set the SNOWFLAKE_ACCOUNT environment variable."
-            )
 
         if self.authenticator != "oauth" and (self.oauth_client_secret or self.oauth_client_id):
             # the user probably forgot to set 'authenticator' like I keep doing
@@ -133,6 +122,27 @@ class SnowflakeCredentials(Credentials):
                     base_msg="Authenticator is not set to oauth, but an oauth-only parameter is set! Did you mean to set authenticator: oauth?"
                 )
             )
+
+        # For oauth and jwt, account is required but user is optional
+        if self.authenticator in ["oauth", "jwt"]:
+            if not self.account:
+                raise DbtConfigError(
+                    "Invalid profile: 'account' is required when using oauth or jwt authenticator."
+                )
+        # For default authenticator (None) without password, account and user are optional
+        # This handles cases where authentication is done via environment variables or other means
+        elif self.authenticator is None and not self.password:
+            # Both account and user are optional when using default auth without password
+            pass
+        # For password-based authentication (default with password) or other authenticators,
+        # account and user are required
+        else:
+            if not self.account:
+                raise DbtConfigError(
+                    "Invalid profile: 'account' is required. Please provide it in your profile"
+                )
+            if not self.user:
+                raise DbtConfigError("Invalid profile: 'user' is required for this authenticator.")
 
         if self.authenticator not in ["oauth", "jwt"]:
             if self.token:
@@ -147,8 +157,8 @@ class SnowflakeCredentials(Credentials):
 
             if not self.user:
                 # The user attribute is only optional if 'authenticator' is 'jwt' or 'oauth'
-                raise DbtConfigError(
-                    "Invalid profile: 'user' is required. Please provide it in your profile or set the SNOWFLAKE_USER environment variable."
+                warn_or_error(
+                    AdapterEventError(base_msg="Invalid profile: 'user' is a required property.")
                 )
 
         # Replace underscores with hyphens in account name
@@ -166,7 +176,7 @@ class SnowflakeCredentials(Credentials):
 
     @property
     def unique_field(self):
-        return self.account or "snowflake"
+        return self.account or "default"
 
     # the results show up in the output of dbt debug runs, for more see..
     # https://docs.getdbt.com/guides/dbt-ecosystem/adapter-development/3-building-a-new-adapter#editing-the-connection-manager
@@ -391,19 +401,24 @@ class SnowflakeConnectionManager(SQLConnectionManager):
             rec_mode = get_record_mode_from_env()
             handle = None
             if rec_mode != RecorderMode.REPLAY:
-                handle = snowflake.connector.connect(
-                    account=creds.account,
-                    database=creds.database,
-                    schema=creds.schema,
-                    warehouse=creds.warehouse,
-                    role=creds.role,
-                    autocommit=True,
-                    client_session_keep_alive=creds.client_session_keep_alive,
-                    application="dbt",
-                    insecure_mode=creds.insecure_mode,
-                    session_parameters=session_parameters,
+                connect_params = {
+                    "database": creds.database,
+                    "schema": creds.schema,
+                    "warehouse": creds.warehouse,
+                    "role": creds.role,
+                    "autocommit": True,
+                    "client_session_keep_alive": creds.client_session_keep_alive,
+                    "application": "dbt",
+                    "insecure_mode": creds.insecure_mode,
+                    "session_parameters": session_parameters,
                     **creds.auth_args(),
-                )
+                }
+
+                # Only include account if it's provided
+                if creds.account:
+                    connect_params["account"] = creds.account
+
+                handle = snowflake.connector.connect(**connect_params)
 
             if rec_mode is not None:
                 # If using the record/replay mechanism, regardless of mode, we
