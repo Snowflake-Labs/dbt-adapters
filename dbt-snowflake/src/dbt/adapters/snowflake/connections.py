@@ -401,24 +401,19 @@ class SnowflakeConnectionManager(SQLConnectionManager):
             rec_mode = get_record_mode_from_env()
             handle = None
             if rec_mode != RecorderMode.REPLAY:
-                connect_params = {
-                    "database": creds.database,
-                    "schema": creds.schema,
-                    "warehouse": creds.warehouse,
-                    "role": creds.role,
-                    "autocommit": True,
-                    "client_session_keep_alive": creds.client_session_keep_alive,
-                    "application": "dbt",
-                    "insecure_mode": creds.insecure_mode,
-                    "session_parameters": session_parameters,
+                handle = snowflake.connector.connect(
+                    account=creds.account,
+                    database=creds.database,
+                    schema=creds.schema,
+                    warehouse=creds.warehouse,
+                    role=creds.role,
+                    autocommit=True,
+                    client_session_keep_alive=creds.client_session_keep_alive,
+                    application="dbt",
+                    insecure_mode=creds.insecure_mode,
+                    session_parameters=session_parameters,
                     **creds.auth_args(),
-                }
-
-                # Only include account if it's provided
-                if creds.account:
-                    connect_params["account"] = creds.account
-
-                handle = snowflake.connector.connect(**connect_params)
+                )
 
             if rec_mode is not None:
                 # If using the record/replay mechanism, regardless of mode, we
