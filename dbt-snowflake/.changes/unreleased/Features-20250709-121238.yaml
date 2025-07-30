@@ -1,0 +1,6 @@
+kind: Features
+body: Support optional account and user fields in profiles.yml for default authenticator without password. When using default authentication without specifying a password, account and user fields can now be omitted from profiles.yml, allowing authentication via environment variables or other external mechanisms.
+time: 2025-07-09T12:12:38.000000-08:00
+custom:
+    Author: dbt-labs
+    Issue: "SNOW-2110797"

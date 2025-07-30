@@ -86,7 +86,7 @@ def snowflake_private_key(private_key: RSAPrivateKey) -> bytes:
 
 @dataclass
 class SnowflakeCredentials(Credentials):
-    account: str
+    account: Optional[str] = None
     user: Optional[str] = None
     warehouse: Optional[str] = None
     role: Optional[str] = None
@@ -114,6 +114,7 @@ class SnowflakeCredentials(Credentials):
     reuse_connections: Optional[bool] = None
 
     def __post_init__(self):
+
         if self.authenticator != "oauth" and (self.oauth_client_secret or self.oauth_client_id):
             # the user probably forgot to set 'authenticator' like I keep doing
             warn_or_error(
@@ -121,6 +122,27 @@ class SnowflakeCredentials(Credentials):
                     base_msg="Authenticator is not set to oauth, but an oauth-only parameter is set! Did you mean to set authenticator: oauth?"
                 )
             )
+
+        # For oauth and jwt, account is required but user is optional
+        if self.authenticator in ["oauth", "jwt"]:
+            if not self.account:
+                raise DbtConfigError(
+                    "Invalid profile: 'account' is required when using oauth or jwt authenticator."
+                )
+        # For default authenticator (None) without password, account and user are optional
+        # This handles cases where authentication is done via environment variables or other means
+        elif self.authenticator is None and not self.password:
+            # Both account and user are optional when using default auth without password
+            pass
+        # For password-based authentication (default with password) or other authenticators,
+        # account and user are required
+        else:
+            if not self.account:
+                raise DbtConfigError(
+                    "Invalid profile: 'account' is required. Please provide it in your profile"
+                )
+            if not self.user:
+                raise DbtConfigError("Invalid profile: 'user' is required for this authenticator.")
 
         if self.authenticator not in ["oauth", "jwt"]:
             if self.token:
@@ -139,7 +161,9 @@ class SnowflakeCredentials(Credentials):
                     AdapterEventError(base_msg="Invalid profile: 'user' is a required property.")
                 )
 
-        self.account = self.account.replace("_", "-")
+        # Replace underscores with hyphens in account name
+        if self.account:
+            self.account = self.account.replace("_", "-")
 
         # only default `reuse_connections` to `True` if the user has not turned on `client_session_keep_alive`
         # having both of these set to `True` could lead to hanging open connections, so it should be opt-in behavior
@@ -152,7 +176,7 @@ class SnowflakeCredentials(Credentials):
 
     @property
     def unique_field(self):
-        return self.account
+        return self.account or "default"
 
     # the results show up in the output of dbt debug runs, for more see..
     # https://docs.getdbt.com/guides/dbt-ecosystem/adapter-development/3-building-a-new-adapter#editing-the-connection-manager
