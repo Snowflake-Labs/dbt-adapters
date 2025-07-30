@@ -103,7 +103,7 @@ def snowflake_private_key(private_key: RSAPrivateKey) -> bytes:
 
 @dataclass
 class SnowflakeCredentials(Credentials):
-    account: str
+    account: Optional[str] = None
     user: Optional[str] = None
     warehouse: Optional[str] = None
     role: Optional[str] = None
@@ -139,6 +139,7 @@ class SnowflakeCredentials(Credentials):
     )
 
     def __post_init__(self):
+
         if self.authenticator != "oauth" and (self.oauth_client_secret or self.oauth_client_id):
             # the user probably forgot to set 'authenticator' like I keep doing
             warn_or_error(
@@ -181,7 +182,7 @@ class SnowflakeCredentials(Credentials):
 
     @property
     def unique_field(self):
-        return self.account
+        return self.account or "default"
 
     # the results show up in the output of dbt debug runs, for more see..
     # https://docs.getdbt.com/guides/dbt-ecosystem/adapter-development/3-building-a-new-adapter#editing-the-connection-manager
