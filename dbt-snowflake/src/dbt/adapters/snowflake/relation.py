@@ -44,6 +44,7 @@ class SnowflakeRelation(BaseRelation):
             {
                 SnowflakeRelationType.Table,  # type: ignore
                 SnowflakeRelationType.View,  # type: ignore
+                SnowflakeRelationType.SemanticView,
             }
         )
     )
@@ -54,6 +55,7 @@ class SnowflakeRelation(BaseRelation):
                 SnowflakeRelationType.DynamicTable,  # type: ignore
                 SnowflakeRelationType.Table,  # type: ignore
                 SnowflakeRelationType.View,  # type: ignore
+                SnowflakeRelationType.SemanticView,
             }
         )
     )
@@ -65,6 +67,10 @@ class SnowflakeRelation(BaseRelation):
     @property
     def is_iceberg_format(self) -> bool:
         return self.table_format == TableFormat.ICEBERG
+
+    @property
+    def is_semantic_view(self) -> bool:
+        return self.type == SnowflakeRelationType.SemanticView
 
     @classproperty
     def DynamicTable(cls) -> str:
