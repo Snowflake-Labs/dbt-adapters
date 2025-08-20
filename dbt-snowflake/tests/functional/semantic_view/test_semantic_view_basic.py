@@ -13,7 +13,8 @@ select * from {{ ref('my_seed') }}
 _MODEL__SEMANTIC_VIEW_SQL = """
 {{ config(materialized='semantic_view') }}
 TABLES(t1 AS {{ ref('base_table') }})
-METRICS(t1.total_rows AS COUNT(*))
+DIMENSIONS(t1.count as value)
+METRICS(t1.total_rows AS SUM(t1.value))
 COMMENT='test semantic view'
 COPY GRANTS
 """
@@ -37,16 +38,18 @@ class TestSemanticViewBasic:
         run_dbt(["run", "--select", "base_table"])  # create the base table
 
     def test_create_semantic_view(self, project):
-        qualified = f"{project.database}.{project.test_schema}.my_semantic_view"
+        database = project.database
+        schema = project.test_schema
+
+        qualified = f"{database}.{schema}.my_semantic_view"
 
         # Create the semantic view and assert DDL in logs
         _, logs = run_dbt_and_capture(["--debug", "run", "--select", "my_semantic_view.sql"])
-        assert f"create semantic view {qualified}" in logs.lower()
+        assert f"create or replace semantic view {qualified}" in logs.lower()
 
         # Verify existence via SHOW SEMANTIC VIEWS (preferred for semantic views)
         exists_sql = (
-            f"show semantic views like 'MY_SEMANTIC_VIEW' in schema "
-            f"{project.database}.{project.test_schema}"
+            f"show semantic views like 'MY_SEMANTIC_VIEW' in schema " f"{database}.{schema}"
         )
         rows = project.run_sql(exists_sql, fetch="all")
         assert rows and len(rows) >= 1, "semantic view not found via SHOW SEMANTIC VIEWS"

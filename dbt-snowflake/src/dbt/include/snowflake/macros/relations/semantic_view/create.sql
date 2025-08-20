@@ -11,7 +11,7 @@
 --      A valid DDL statement which will result in a new semantic view.
 -#}
 
-  create semantic view {{ relation }}
+  create or replace semantic view {{ relation }}
   {{ sql }}
 
 {%- endmacro %}
