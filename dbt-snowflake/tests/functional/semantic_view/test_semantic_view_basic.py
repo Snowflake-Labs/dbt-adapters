@@ -2,7 +2,6 @@ import pytest
 
 from dbt.tests.util import run_dbt, run_dbt_and_capture
 
-
 _SEED__DATA = """id,value\n1,100\n2,200\n3,300\n"""
 
 _MODEL__BASE_TABLE_SQL = """
@@ -19,6 +18,11 @@ COMMENT='test semantic view'
 COPY GRANTS
 """
 
+_MODEL__TABLE_REFER_SEMANTIC_VIEW_SQL = """
+{{ config(materialized='table') }}
+select * from semantic_view({{ ref('my_semantic_view') }} metrics total_rows)
+"""
+
 
 class TestSemanticViewBasic:
     @pytest.fixture(scope="class", autouse=True)
@@ -30,6 +34,7 @@ class TestSemanticViewBasic:
         return {
             "base_table.sql": _MODEL__BASE_TABLE_SQL,
             "my_semantic_view.sql": _MODEL__SEMANTIC_VIEW_SQL,
+            "table_refer_to_semantic_view.sql": _MODEL__TABLE_REFER_SEMANTIC_VIEW_SQL,
         }
 
     @pytest.fixture(scope="class", autouse=True)
@@ -53,3 +58,22 @@ class TestSemanticViewBasic:
         )
         rows = project.run_sql(exists_sql, fetch="all")
         assert rows and len(rows) >= 1, "semantic view not found via SHOW SEMANTIC VIEWS"
+
+    def test_table_refer_to_semantic_view(self, project):
+        database = project.database
+        schema = project.test_schema
+
+        qualified = f"{database}.{schema}.table_refer_to_semantic_view"
+
+        # Create the semantic view and assert DDL in logs
+        _, logs = run_dbt_and_capture(
+            ["--debug", "run", "--select", "+table_refer_to_semantic_view.sql"]
+        )
+        assert f"create or replace transient table {qualified}" in logs.lower()
+
+        # verify the select-star result of the table which refer to the semantic view and the semantic view are the same
+        table_select_star_sql = f"select * from {database}.{schema}.TABLE_REFER_TO_SEMANTIC_VIEW"
+        table_select_result = project.run_sql(table_select_star_sql, fetch="all")
+        semantic_view_select_star_sql = f"select * from semantic_view({database}.{schema}.MY_SEMANTIC_VIEW metrics total_rows);"
+        semantic_view_select_result = project.run_sql(semantic_view_select_star_sql, fetch="all")
+        assert table_select_result[0][0] == semantic_view_select_result[0][0]
