@@ -23,6 +23,20 @@ _MODEL__TABLE_REFER_SEMANTIC_VIEW_SQL = """
 select * from semantic_view({{ ref('my_semantic_view') }} metrics total_rows)
 """
 
+_MODEL__TABLE_REFER_RAW_SEMANTIC_VIEW_SQL = """
+{{ config(materialized='table') }}
+select * from semantic_view({{ source('seed_sources', 'raw_semantic_view') }} metrics total_rows)
+"""
+
+_SOURCES_YML = """
+version: 2
+sources:
+  - name: seed_sources
+    schema: "{{ target.schema }}"
+    tables:
+      - name: raw_semantic_view
+"""
+
 
 class TestSemanticViewBasic:
     @pytest.fixture(scope="class", autouse=True)
@@ -35,12 +49,26 @@ class TestSemanticViewBasic:
             "base_table.sql": _MODEL__BASE_TABLE_SQL,
             "my_semantic_view.sql": _MODEL__SEMANTIC_VIEW_SQL,
             "table_refer_to_semantic_view.sql": _MODEL__TABLE_REFER_SEMANTIC_VIEW_SQL,
+            "table_refer_to_raw_semantic_view.sql": _MODEL__TABLE_REFER_RAW_SEMANTIC_VIEW_SQL,
+            "sources.yml": _SOURCES_YML,
         }
 
     @pytest.fixture(scope="class", autouse=True)
     def setup(self, project):
-        run_dbt(["seed"])  # load seed for base table
-        run_dbt(["run", "--select", "base_table"])  # create the base table
+        run_dbt(["seed"])
+        run_dbt(["run", "--select", "base_table"])
+
+        database = project.database
+        schema = project.test_schema
+
+        project.run_sql(
+            f"""
+            create or replace semantic view raw_semantic_view
+            tables(t1 as {database}.{schema}.base_table)
+            dimensions(t1.count as value)
+            metrics(t1.total_rows as sum(t1.value))
+        """
+        )
 
     def test_create_semantic_view(self, project):
         database = project.database
@@ -75,5 +103,30 @@ class TestSemanticViewBasic:
         table_select_star_sql = f"select * from {database}.{schema}.TABLE_REFER_TO_SEMANTIC_VIEW"
         table_select_result = project.run_sql(table_select_star_sql, fetch="all")
         semantic_view_select_star_sql = f"select * from semantic_view({database}.{schema}.MY_SEMANTIC_VIEW metrics total_rows);"
+        semantic_view_select_result = project.run_sql(semantic_view_select_star_sql, fetch="all")
+        assert table_select_result[0][0] == semantic_view_select_result[0][0]
+
+    def test_table_refer_to_raw_semantic_view(self, project):
+        database = project.database
+        schema = project.test_schema
+
+        qualified = f"{database}.{schema}.table_refer_to_raw_semantic_view"
+
+        # Create the semantic view and assert DDL in logs
+        _, logs = run_dbt_and_capture(
+            [
+                "--debug",
+                "run",
+                "--select",
+                "+table_refer_to_raw_semantic_view.sql",
+            ]
+        )
+        assert f"create or replace transient table {qualified}" in logs.lower()
+        # verify the select-star result of the table which refer to the semantic view and the semantic view are the same
+        table_select_star_sql = (
+            f"select * from {database}.{schema}.table_refer_to_raw_semantic_view"
+        )
+        table_select_result = project.run_sql(table_select_star_sql, fetch="all")
+        semantic_view_select_star_sql = f"select * from semantic_view({database}.{schema}.raw_semantic_view metrics total_rows);"
         semantic_view_select_result = project.run_sql(semantic_view_select_star_sql, fetch="all")
         assert table_select_result[0][0] == semantic_view_select_result[0][0]
