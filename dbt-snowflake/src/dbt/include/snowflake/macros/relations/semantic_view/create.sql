@@ -22,11 +22,23 @@
 
   {%- set old_relation = adapter.get_relation(database=database, schema=schema, identifier=identifier) -%}
   {%- set exists_as_view = (old_relation is not none and old_relation.is_semantic_view) -%}
+  {%- set copy_grants = config.get('copy_grants', default=false) -%}
 
   {%- set target_relation = api.Relation.create(
       identifier=identifier, schema=schema, database=database,
       type='semantic_view') -%}
   {% set grant_config = config.get('grants') %}
+
+  {%- if copy_grants -%}
+    {#- Normalize SQL and append COPY GRANTS if not already present (case-insensitive) -#}
+    {%- set _sql_norm = sql | trim -%}
+    {%- set _sql_norm = _sql_norm[:-1] if _sql_norm[-1:] == ';' else _sql_norm -%}
+    {%- set _sql_norm = _sql_norm | trim -%}
+    {%- set _ends = (_sql_norm | lower)[-11:] -%}
+    {%- if _ends != 'copy grants' -%}
+      {%- set sql = sql ~ '\nCOPY GRANTS' -%}
+    {%- endif -%}
+  {%- endif -%}
 
   {{ run_hooks(pre_hooks) }}
 
@@ -34,10 +46,6 @@
   {% call statement('main') -%}
     {{ snowflake__get_create_semantic_view_sql(target_relation, sql) }}
   {%- endcall %}
-
-  -- TODO: Properly handle hierarchy of specification
-  -- {% set should_revoke = should_revoke(exists_as_view, full_refresh_mode=True) %}
-  -- {% do apply_grants(target_relation, grant_config, should_revoke=should_revoke) %}
 
   {{ run_hooks(post_hooks) }}
 

@@ -15,7 +15,6 @@ TABLES(t1 AS {{ ref('base_table') }}, t2 as {{ source('seed_sources', 'base_tabl
 DIMENSIONS(t1.count as value, t2.volume as value)
 METRICS(t1.total_rows AS SUM(t1.count), t2.max_volume as max(t2.volume))
 COMMENT='test semantic view'
-COPY GRANTS
 """
 
 _MODEL__TABLE_REFER_SEMANTIC_VIEW_SQL = """
@@ -28,12 +27,33 @@ _MODEL__TABLE_REFER_RAW_SEMANTIC_VIEW_SQL = """
 select * from semantic_view({{ source('seed_sources', 'raw_semantic_view') }} metrics total_rows)
 """
 
+_MODEL__SEMANTIC_VIEW_WITH_COPY_SQL = """
+{{ config(materialized='semantic_view') }}
+TABLES(t1 AS {{ ref('base_table') }})
+DIMENSIONS(t1.count as value)
+METRICS(t1.total_rows AS SUM(t1.value))
+COMMENT='test semantic view explicit copy grants'
+COPY GRANTS
+"""
+
+_MODEL__SEMANTIC_VIEW_WITHOUT_COPY_SQL = """
+{{ config(materialized='semantic_view') }}
+TABLES(t1 AS {{ ref('base_table') }})
+DIMENSIONS(t1.count as value)
+METRICS(t1.total_rows AS SUM(t1.value))
+COMMENT='test semantic view yaml copy grants'
+"""
+
 _SCHEMA_YML = """
 version: 2
 
 models:
   - name: my_semantic_view
     description: "Semantic view description for persist_docs"
+  - name: my_semantic_view_without_copy
+    config:
+      copy_grants: true
+  - name: my_semantic_view_with_copy
 """
 
 _SOURCES_YML = """
@@ -57,6 +77,8 @@ class TestSemanticViewBasic:
         return {
             "base_table.sql": _MODEL__BASE_TABLE_SQL,
             "my_semantic_view.sql": _MODEL__SEMANTIC_VIEW_SQL,
+            "my_semantic_view_with_copy.sql": _MODEL__SEMANTIC_VIEW_WITH_COPY_SQL,
+            "my_semantic_view_without_copy.sql": _MODEL__SEMANTIC_VIEW_WITHOUT_COPY_SQL,
             "table_refer_to_semantic_view.sql": _MODEL__TABLE_REFER_SEMANTIC_VIEW_SQL,
             "table_refer_to_raw_semantic_view.sql": _MODEL__TABLE_REFER_RAW_SEMANTIC_VIEW_SQL,
             "sources.yml": _SOURCES_YML,
@@ -183,3 +205,34 @@ class TestSemanticViewBasic:
         )
         rows = project.run_sql(exists_sql, fetch="all")
         assert "semantic view description for persist_docs" in rows[0][4].lower()
+
+    def test_semantic_view_copy_grants_logic(self, project):
+        database = project.database
+        schema = project.test_schema
+
+        # Case 1: SQL already ends with COPY GRANTS -> should not rely on yaml, appears in DDL
+        qualified_with = f"{database}.{schema}.my_semantic_view_with_copy"
+        _, logs_with = run_dbt_and_capture(
+            ["--debug", "run", "--select", "my_semantic_view_with_copy.sql"]
+        )
+        assert f"create or replace semantic view {qualified_with}" in logs_with.lower()
+        assert "copy grants" in logs_with.lower()
+
+        # Case 2: SQL does not end with COPY GRANTS but YAML sets copy_grants: true -> appended
+        qualified_without = f"{database}.{schema}.my_semantic_view_without_copy"
+        _, logs_without = run_dbt_and_capture(
+            ["--debug", "run", "--select", "my_semantic_view_without_copy.sql"]
+        )
+        assert f"create or replace semantic view {qualified_without}" in logs_without.lower()
+        assert "copy grants" in logs_without.lower()
+
+        # Case 3: SQL does not end with COPY GRANTS and YAML does not set copy_grants: true -> no copy grants
+        qualified_without_sql_or_yaml = f"{database}.{schema}.my_semantic_view"
+        _, logs_without_sql_or_yaml = run_dbt_and_capture(
+            ["--debug", "run", "--select", "my_semantic_view.sql"]
+        )
+        assert (
+            f"create or replace semantic view {qualified_without_sql_or_yaml}"
+            in logs_without.lower()
+        )
+        assert "copy grants" not in logs_without_sql_or_yaml.lower()
