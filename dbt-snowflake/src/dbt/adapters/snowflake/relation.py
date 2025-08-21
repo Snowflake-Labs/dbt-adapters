@@ -44,7 +44,7 @@ class SnowflakeRelation(BaseRelation):
             {
                 SnowflakeRelationType.Table,  # type: ignore
                 SnowflakeRelationType.View,  # type: ignore
-                SnowflakeRelationType.SemanticView,
+                SnowflakeRelationType.SemanticView,  # type: ignore
             }
         )
     )
@@ -55,7 +55,7 @@ class SnowflakeRelation(BaseRelation):
                 SnowflakeRelationType.DynamicTable,  # type: ignore
                 SnowflakeRelationType.Table,  # type: ignore
                 SnowflakeRelationType.View,  # type: ignore
-                SnowflakeRelationType.SemanticView,
+                SnowflakeRelationType.SemanticView,  # type: ignore
             }
         )
     )
