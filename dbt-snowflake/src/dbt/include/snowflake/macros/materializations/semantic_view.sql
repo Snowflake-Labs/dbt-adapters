@@ -5,8 +5,8 @@
 
     {% set target_relation = this.incorporate(type='semantic_view') %}
 
-    -- Requires COMMENT ON SEMANTIC VIEW support
-    -- {% do persist_docs(target_relation, model, for_columns=false) %}
+    -- COMMENT ON SEMANTIC VIEW support
+    {% do persist_docs(target_relation, model, for_columns=false) %}
 
     {% do unset_query_tag(original_query_tag) %}
 

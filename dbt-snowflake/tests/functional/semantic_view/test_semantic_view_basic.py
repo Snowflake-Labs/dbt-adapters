@@ -28,6 +28,14 @@ _MODEL__TABLE_REFER_RAW_SEMANTIC_VIEW_SQL = """
 select * from semantic_view({{ source('seed_sources', 'raw_semantic_view') }} metrics total_rows)
 """
 
+_SCHEMA_YML = """
+version: 2
+
+models:
+  - name: my_semantic_view
+    description: "Semantic view description for persist_docs"
+"""
+
 _SOURCES_YML = """
 version: 2
 sources:
@@ -51,6 +59,19 @@ class TestSemanticViewBasic:
             "table_refer_to_semantic_view.sql": _MODEL__TABLE_REFER_SEMANTIC_VIEW_SQL,
             "table_refer_to_raw_semantic_view.sql": _MODEL__TABLE_REFER_RAW_SEMANTIC_VIEW_SQL,
             "sources.yml": _SOURCES_YML,
+            "schema.yml": _SCHEMA_YML,
+        }
+
+    @pytest.fixture(scope="class")
+    def project_config_update(self):
+        return {
+            "models": {
+                "test": {
+                    "+persist_docs": {
+                        "relation": True,
+                    }
+                }
+            }
         }
 
     @pytest.fixture(scope="class", autouse=True)
@@ -130,3 +151,19 @@ class TestSemanticViewBasic:
         semantic_view_select_star_sql = f"select * from semantic_view({database}.{schema}.raw_semantic_view metrics total_rows);"
         semantic_view_select_result = project.run_sql(semantic_view_select_star_sql, fetch="all")
         assert table_select_result[0][0] == semantic_view_select_result[0][0]
+
+    def test_semantic_view_comment(self, project):
+        database = project.database
+        schema = project.test_schema
+
+        qualified = f"{database}.{schema}.my_semantic_view"
+
+        # Create the semantic view and assert DDL in logs
+        _, logs = run_dbt_and_capture(["--debug", "run", "--select", "my_semantic_view.sql"])
+        assert f"comment on semantic view {qualified}" in logs.lower()
+        # Verify existence via SHOW SEMANTIC VIEWS (preferred for semantic views)
+        exists_sql = (
+            f"show semantic views like 'MY_SEMANTIC_VIEW' in schema " f"{database}.{schema}"
+        )
+        rows = project.run_sql(exists_sql, fetch="all")
+        assert "semantic view description for persist_docs" in rows[0][4].lower()
