@@ -44,6 +44,14 @@ METRICS(t1.total_rows AS SUM(t1.value))
 COMMENT='test semantic view yaml copy grants'
 """
 
+_MODEL__SEMANTIC_VIEW_WITH_EXTENSION_SQL = """
+{{ config(materialized='semantic_view') }}
+TABLES(t1 AS {{ ref('base_table') }}, t2 as {{ source('seed_sources', 'base_table2') }})
+DIMENSIONS(t1.count as value, t2.volume as value)
+METRICS(t1.total_rows AS SUM(t1.count), t2.max_volume as max(t2.volume))
+with extension (CA = '{"verified_queries":[{"name":"hi", "question": "hello"}]')
+"""
+
 _SCHEMA_YML = """
 version: 2
 
@@ -81,6 +89,7 @@ class TestSemanticViewBasic:
             "my_semantic_view_without_copy.sql": _MODEL__SEMANTIC_VIEW_WITHOUT_COPY_SQL,
             "table_refer_to_semantic_view.sql": _MODEL__TABLE_REFER_SEMANTIC_VIEW_SQL,
             "table_refer_to_raw_semantic_view.sql": _MODEL__TABLE_REFER_RAW_SEMANTIC_VIEW_SQL,
+            "table_with_ca_extension.sql": _MODEL__SEMANTIC_VIEW_WITH_EXTENSION_SQL,
             "sources.yml": _SOURCES_YML,
             "schema.yml": _SCHEMA_YML,
         }
@@ -236,3 +245,25 @@ class TestSemanticViewBasic:
             in logs_without.lower()
         )
         assert "copy grants" not in logs_without_sql_or_yaml.lower()
+
+    def test_semantic_view_with_ca_extension(self, project):
+        database = project.database
+        schema = project.test_schema
+
+        qualified = f"{database}.{schema}.table_with_ca_extension"
+
+        # Create the semantic view and assert DDL in logs
+        _, logs = run_dbt_and_capture(
+            ["--debug", "run", "--select", "table_with_ca_extension.sql"]
+        )
+        assert f"create or replace semantic view {qualified}" in logs.lower()
+
+        desc_semantic_view_sql = f"describe semantic view {qualified}"
+        desc_remantic_view_res = project.run_sql(desc_semantic_view_sql, fetch="all")
+        for row in desc_remantic_view_res:
+            if row[0].lower() == "extension":
+                assert row[1].lower() == "ca"
+                assert row[4].lower() == '{"verified_queries":[{"name":"hi", "question": "hello"}]'
+                break
+        else:
+            assert False, "Extension not found"
