@@ -11,9 +11,9 @@ select * from {{ ref('my_seed') }}
 
 _MODEL__SEMANTIC_VIEW_SQL = """
 {{ config(materialized='semantic_view') }}
-TABLES(t1 AS {{ ref('base_table') }})
-DIMENSIONS(t1.count as value)
-METRICS(t1.total_rows AS SUM(t1.value))
+TABLES(t1 AS {{ ref('base_table') }}, t2 as {{ source('seed_sources', 'base_table2') }})
+DIMENSIONS(t1.count as value, t2.volume as value)
+METRICS(t1.total_rows AS SUM(t1.count), t2.max_volume as max(t2.volume))
 COMMENT='test semantic view'
 COPY GRANTS
 """
@@ -43,6 +43,7 @@ sources:
     schema: "{{ target.schema }}"
     tables:
       - name: raw_semantic_view
+      - name: base_table2
 """
 
 
@@ -82,6 +83,14 @@ class TestSemanticViewBasic:
         database = project.database
         schema = project.test_schema
 
+        # Create a physical source table with different values than base_table
+        project.run_sql(
+            f"""
+            create or replace table {database}.{schema}.base_table2 as
+            select id, value + 1000 as value from {database}.{schema}.base_table
+        """
+        )
+
         project.run_sql(
             f"""
             create or replace semantic view raw_semantic_view
@@ -107,6 +116,13 @@ class TestSemanticViewBasic:
         )
         rows = project.run_sql(exists_sql, fetch="all")
         assert rows and len(rows) >= 1, "semantic view not found via SHOW SEMANTIC VIEWS"
+
+        # verify the select-star result of the table which refer to the semantic view and the semantic view are the same
+        table_select_star_sql = f"select sum(value) from {database}.{schema}.BASE_TABLE"
+        table_select_result = project.run_sql(table_select_star_sql, fetch="all")
+        semantic_view_select_star_sql = f"select * from semantic_view({database}.{schema}.MY_SEMANTIC_VIEW metrics total_rows);"
+        semantic_view_select_result = project.run_sql(semantic_view_select_star_sql, fetch="all")
+        assert table_select_result[0][0] == semantic_view_select_result[0][0]
 
     def test_table_refer_to_semantic_view(self, project):
         database = project.database
