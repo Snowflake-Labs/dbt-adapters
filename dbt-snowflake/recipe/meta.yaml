@@ -1,5 +1,5 @@
 {% set name = "dbt-snowflake" %}
-{% set version = "1.9.2c1" %}
+{% set version = "1.10.3b" %}
 
 package:
   name: {{ name|lower }}
