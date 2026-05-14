@@ -1,0 +1,6 @@
+kind: Features
+body: Add OpenTelemetry span names for pre-hook and post-hook in Snowflake materializations
+time: 2025-05-14T12:00:00.000000-07:00
+custom:
+    Author: sfc-gh-vguttha
+    Issue: "11367"
