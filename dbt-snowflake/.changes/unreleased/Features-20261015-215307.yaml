@@ -1,0 +1,6 @@
+kind: Features
+body: Support attaching Snowflake data metric functions to table, view, incremental and dynamic table models with `data_metric_functions` and `data_metric_schedule`.
+time: 2026-10-15T21:53:07.890022+00:00
+custom:
+    Author: sfc-gh-zgong
+    Issue: "N/A"

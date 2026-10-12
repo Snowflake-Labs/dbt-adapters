@@ -53,7 +53,10 @@ from dbt.adapters.snowflake.catalogs import (
     InfoSchemaCatalogIntegration,
     IcebergRestCatalogIntegration,
 )
-from dbt.adapters.snowflake.relation_configs import SnowflakeRelationType
+from dbt.adapters.snowflake.relation_configs import (
+    SnowflakeDataMetricsConfig,
+    SnowflakeRelationType,
+)
 from dbt.adapters.snowflake.relation_configs.interactive_table import INTERACTIVE_TABLE_COLUMNS
 
 from dbt.adapters.snowflake import SnowflakeColumn
@@ -116,6 +119,8 @@ class SnowflakeConfig(AdapterConfig):
     row_access_policy: Optional[str] = None
     table_tag: Optional[str] = None
     immutable_where: Optional[str] = None
+    data_metric_schedule: Optional[str] = None
+    data_metric_functions: Optional[List[Dict[str, Any]]] = None
 
     # extended formats
     table_format: Optional[str] = None
@@ -753,6 +758,73 @@ CALL {proc_name}();
             )
 
         return {"dynamic_table": selected}
+
+    @available
+    def parse_data_metrics_config(
+        self, relation_config: RelationConfig
+    ) -> SnowflakeDataMetricsConfig:
+        return SnowflakeDataMetricsConfig.from_relation_config(relation_config)
+
+    @available
+    def missing_local_data_metric_functions(
+        self, relation: SnowflakeRelation, desired: SnowflakeDataMetricsConfig
+    ) -> List[str]:
+        """Names of one-part DMFs in `desired` that do not exist yet in the relation's
+        schema. dbt does not order a dbt-built DMF before the models that use it, so a
+        model can build first; the DMF attaches itself to the model when it is built."""
+        local = {a.function[-1].normalized for a in (desired.functions or ()) if a.is_local}
+        if not local:
+            return []
+        schema = self.Relation.create(database=relation.database, schema=relation.schema)
+        _, functions = self.execute(
+            f"show data metric functions in schema {schema.render()}", fetch=True
+        )
+        name_index = [column.lower() for column in functions.column_names].index("name")
+        existing = {row[name_index] for row in functions.rows}
+        return sorted(name for name in local if name not in existing)
+
+    @available
+    def describe_data_metrics(
+        self, relation: SnowflakeRelation, desired: SnowflakeDataMetricsConfig
+    ) -> Dict[str, Any]:
+        """
+        Read the DMF state needed to reconcile `desired` on a table or view.
+        Only the configured halves are read. Associations come from
+        INFORMATION_SCHEMA.DATA_METRIC_FUNCTION_REFERENCES, which is real-time but
+        has no row at all when nothing is attached, so the schedule is read
+        separately with SHOW PARAMETERS (the references view only reports it per
+        association, and in cron form).
+        """
+        object_kind = "view" if relation.type == SnowflakeRelationType.View else "table"
+
+        results: Dict[str, Any] = {}
+        if desired.functions is not None:
+            quoting = relation.quote_policy
+            database = f'"{relation.database}"' if quoting.database else relation.database
+            references_sql = (
+                "select metric_database_name, metric_schema_name, metric_name, ref_arguments "
+                f"from table({database}.information_schema.data_metric_function_references("
+                f"ref_entity_name => '{_sql_literal(relation.render())}', "
+                f"ref_entity_domain => '{object_kind}'))"
+            )
+            res, references = self.execute(references_sql, fetch=True)
+            if res.code != "SUCCESS":
+                raise DbtRuntimeError(
+                    f"Could not get data metric function metadata: {references_sql} failed"
+                )
+            results["function_references"] = references
+
+        if desired.schedule is not None:
+            # `IN TABLE` also accepts views and Iceberg tables.
+            show_sql = f"show parameters like 'DATA_METRIC_SCHEDULE' in table {relation.render()}"
+            res, parameters = self.execute(show_sql, fetch=True)
+            if res.code != "SUCCESS":
+                raise DbtRuntimeError(
+                    f"Could not get data metric schedule metadata: {show_sql} failed"
+                )
+            results["schedule_parameters"] = parameters
+
+        return results
 
     @available
     def describe_interactive_table(self, relation: SnowflakeRelation) -> Dict[str, Any]:

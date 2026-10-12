@@ -1,4 +1,4 @@
-from typing import Iterable, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 from dbt_common.exceptions import DbtConfigError
 
@@ -145,3 +145,47 @@ def iceberg_version(model: RelationConfig) -> Optional[int]:
 
 def target_file_size(model: RelationConfig) -> Optional[str]:
     return model.config.get("target_file_size") if model.config else None
+
+
+def data_metric_schedule(model: RelationConfig) -> Optional[str]:
+    return model.config.get("data_metric_schedule") if model.config else None
+
+
+def data_metric_functions(model: RelationConfig) -> Optional[List[Any]]:
+    return model.config.get("data_metric_functions") if model.config else None
+
+
+def column_data_metric_functions(
+    model: RelationConfig,
+) -> Optional[List[Tuple[str, Dict[str, Any]]]]:
+    """`data_metric_functions` set directly on columns in schema YAML, as
+    `(setting, {function, columns})` entries for that column. `None` if no column sets it."""
+    entries: Optional[List[Tuple[str, Dict[str, Any]]]] = None
+    for name, column in (getattr(model, "columns", None) or {}).items():
+        extra = column.get("_extra", {}) if isinstance(column, dict) else column._extra
+        if "data_metric_functions" not in extra:
+            continue
+        setting = f"columns.{name}.data_metric_functions"
+        functions = extra["data_metric_functions"]
+        if not isinstance(functions, (list, tuple)):
+            raise DbtConfigError(
+                f"Unexpected {setting}: expected a list of function names, got {functions!r}"
+            )
+        quote = column.get("quote") if isinstance(column, dict) else column.quote
+        column_sql = '"' + name.replace('"', '""') + '"' if quote else name
+        entries = entries or []
+        entries += [(setting, {"function": f, "columns": [column_sql]}) for f in functions]
+    return entries
+
+
+def data_metrics_local_schema(model: RelationConfig) -> Optional[str]:
+    """The model's `<database>.<schema>`, rendered with the model's quoting."""
+    database, schema = getattr(model, "database", None), getattr(model, "schema", None)
+    if not database or not schema:
+        return None
+    quoting = getattr(model, "quoting_dict", None) or {}
+
+    def render(part: str, component: str) -> str:
+        return '"' + part.replace('"', '""') + '"' if quoting.get(component) else part
+
+    return f"{render(database, 'database')}.{render(schema, 'schema')}"
