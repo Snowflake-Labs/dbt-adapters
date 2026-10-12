@@ -130,6 +130,26 @@ class SnowflakeConfig(AdapterConfig):
     iceberg_version: Optional[int] = None
 
 
+class _GraphNodeRelationConfig:
+    """Adapts a node from the Jinja `graph` (a plain dict) to the attributes the DMF
+    config parser reads from a RelationConfig."""
+
+    def __init__(self, node: Dict[str, Any]) -> None:
+        self.config = node.get("config") or {}
+        self.database = node.get("database")
+        self.schema = node.get("schema")
+        self.quoting_dict = node.get("quoting") or {}
+        self.columns = {
+            name: {
+                "_extra": {
+                    key: column[key] for key in ("data_metric_functions",) if key in column
+                },
+                "quote": column.get("quote"),
+            }
+            for name, column in (node.get("columns") or {}).items()
+        }
+
+
 class SnowflakeAdapter(SQLAdapter):
     Relation = SnowflakeRelation
     Column = SnowflakeColumn
@@ -764,6 +784,49 @@ CALL {proc_name}();
         self, relation_config: RelationConfig
     ) -> SnowflakeDataMetricsConfig:
         return SnowflakeDataMetricsConfig.from_relation_config(relation_config)
+
+    @available
+    def models_using_data_metric_function(
+        self, graph_nodes: List[Dict[str, Any]], function: SnowflakeRelation
+    ) -> List[Tuple[SnowflakeRelation, SnowflakeDataMetricsConfig]]:
+        """Models in `function`'s database and schema whose DMF configs name it with a
+        one-part name. A dbt-built DMF is not a dependency of those models, so it can be
+        built after them; it then attaches itself to them."""
+        name = function.identifier.upper() if function.identifier else ""
+        matches = []
+        for node in graph_nodes:
+            if node.get("resource_type") != "model":
+                continue
+            if (node.get("database") or "").upper() != (function.database or "").upper():
+                continue
+            if (node.get("schema") or "").upper() != (function.schema or "").upper():
+                continue
+            relation_config = _GraphNodeRelationConfig(node)
+            # Only the attributes the DMF parser reads are provided.
+            desired = SnowflakeDataMetricsConfig.from_relation_config(
+                relation_config  # type: ignore[arg-type]
+            )
+            own = tuple(
+                a
+                for a in (desired.functions or ())
+                if a.is_local and a.function[-1].normalized.upper() == name
+            )
+            if not own:
+                continue
+            relation = self.Relation.create(
+                database=node["database"],
+                schema=node["schema"],
+                identifier=node.get("alias") or node["name"],
+                quote_policy=node.get("quoting") or {},
+            )
+            matches.append((relation, SnowflakeDataMetricsConfig(functions=own)))
+        return matches
+
+    @available
+    def data_metric_function_keys(self, relation_results: Dict[str, Any]) -> List[Any]:
+        """Keys of the DMF associations read by `describe_data_metrics`."""
+        current = SnowflakeDataMetricsConfig.from_relation_results(relation_results)
+        return [association.key for association in (current.functions or ())]
 
     @available
     def missing_local_data_metric_functions(

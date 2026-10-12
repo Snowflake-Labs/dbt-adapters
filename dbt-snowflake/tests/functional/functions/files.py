@@ -184,3 +184,55 @@ functions:
     returns:
       data_type: float
 """
+
+
+# --- Data metric function (scalar function marked with is_data_metric_function) ---
+
+MY_DMF_SQL = """
+SELECT COUNT(*) FROM arg_t WHERE arg_col > 0
+""".strip()
+
+MY_DMF_YML = """
+functions:
+  - name: count_positive
+    description: Count rows with a positive value
+    config:
+      is_data_metric_function: true
+    arguments:
+      - name: arg_t
+        data_type: TABLE(arg_col NUMBER)
+    returns:
+      data_type: NUMBER
+"""
+
+# A table model that attaches the dbt-built DMF above by its one-part name; it is
+# built in the model's schema, so the name resolves there.
+MY_DMF_MODEL_SQL = """
+{{ config(
+    materialized='table',
+    data_metric_functions=[{'function': 'count_positive', 'columns': ['amount']}],
+) }}
+select 1::number as amount union all select -1::number
+""".strip()
+
+MY_DMF_MODEL_YAML_SQL = "select 1::number as amount union all select -1::number"
+
+MY_DMF_MODEL_YML = """
+models:
+  - name: yaml_model
+    config:
+      materialized: table
+      data_metric_functions:
+        - function: count_positive
+          columns: [amount]
+"""
+
+MY_DMF_COLUMN_MODEL_YML = """
+models:
+  - name: column_model
+    config:
+      materialized: incremental
+    columns:
+      - name: amount
+        data_metric_functions: [count_positive]
+"""
