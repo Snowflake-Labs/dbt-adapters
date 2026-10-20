@@ -46,7 +46,7 @@ def dynamic_table(config: str = "") -> str:
     return f"""
 {{{{ config(
     materialized='dynamic_table',
-    snowflake_warehouse='DBT_TESTING',
+    snowflake_warehouse=target.warehouse,
     target_lag='2 minutes'{config}
 ) }}}}
 select * from {{{{ ref('my_seed') }}}}
@@ -57,7 +57,7 @@ DYNAMIC_TABLE = dynamic_table(NULL_COUNT_AND_ROW_COUNT)
 DYNAMIC_TABLE_ROW_COUNT_ONLY = dynamic_table(ROW_COUNT_ONLY)
 
 
-# DMFs set on columns in schema YAML, plus a one-part name for a DMF in the model's schema.
+# DMFs set on columns in schema YAML, including a pre-existing custom DMF.
 COLUMN_MODEL = "select * from {{ ref('my_seed') }}"
 
 COLUMN_SCHEMA_YML = """
@@ -69,7 +69,9 @@ models:
         - function: snowflake.core.row_count
     columns:
       - name: status
-        data_metric_functions: [snowflake.core.null_count, local_null_count]
+        data_metric_functions:
+          - snowflake.core.null_count
+          - "{{ target.database }}.{{ target.schema }}.local_null_count"
       - name: amount
         data_metric_functions: [snowflake.core.null_count]
 """

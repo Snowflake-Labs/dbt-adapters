@@ -28,13 +28,10 @@ def _call(macro, *args):
         return returned.value
 
 
-def _association(function_sql, columns_sql, local_name=None):
-    function = [SimpleNamespace(normalized=local_name or function_sql.split(".")[-1].upper())]
+def _association(function_sql, columns_sql):
     return SimpleNamespace(
         function_sql=function_sql,
         columns_sql=columns_sql,
-        is_local=local_name is not None,
-        function=function,
     )
 
 
@@ -77,9 +74,6 @@ class TestSnowflakeDataMetricsMacros(unittest.TestCase):
             "return": _raise_return,
         }
         self.default_context["adapter"].describe_data_metrics = mock.Mock(return_value="state")
-        self.default_context["adapter"].missing_local_data_metric_functions = mock.Mock(
-            return_value=[]
-        )
 
         statements = self.statements
 
@@ -169,30 +163,26 @@ class TestSnowflakeDataMetricsMacros(unittest.TestCase):
             'alter table test_db.test_schema.test_model drop data metric function "SNOWFLAKE"."CORE"."ROW_COUNT" on ()'
         ]
 
-    def test_missing_local_dmf_is_skipped(self):
-        # A dbt-built DMF in the model's schema that is not built yet: its ADD is
-        # skipped, other changes still run.
-        self.default_context["adapter"].missing_local_data_metric_functions.return_value = [
-            "COUNT_POSITIVE"
-        ]
+    def test_failed_add_propagates_before_dropping_existing_bindings(self):
         changeset = self._changeset(
-            adds=[
-                _association("db.schema.count_positive", "amount", local_name="COUNT_POSITIVE"),
-                _association("snowflake.core.row_count", ""),
-            ],
+            adds=[_association("db.schema.count_positive", "amount")],
+            drops=[_association("snowflake.core.row_count", "")],
         )
-        assert self._render_statements(_Relation("table"), changeset) == [
-            "alter table test_db.test_schema.test_model add data metric function snowflake.core.row_count on ()",
-        ]
 
-    def test_only_missing_local_dmfs_runs_nothing(self):
-        self.default_context["adapter"].missing_local_data_metric_functions.return_value = [
-            "COUNT_POSITIVE"
+        def fail_statement(name, caller=None):
+            self.statements.append(re.sub(r"\s+", " ", caller().strip()))
+            raise RuntimeError("DMF does not exist")
+
+        module = self.template.make_module({"statement": fail_statement})
+        with self.assertRaisesRegex(RuntimeError, "DMF does not exist"):
+            _call(
+                module.snowflake__apply_data_metrics,
+                _Relation("table", changeset),
+                self.data_metrics,
+            )
+        assert self.statements == [
+            "alter table test_db.test_schema.test_model add data metric function db.schema.count_positive on (amount)"
         ]
-        changeset = self._changeset(
-            adds=[_association("db.schema.count_positive", "amount", local_name="COUNT_POSITIVE")]
-        )
-        assert self._render_statements(_Relation("table"), changeset) == []
 
     def test_in_sync_runs_nothing(self):
         relation = _Relation("table", None)

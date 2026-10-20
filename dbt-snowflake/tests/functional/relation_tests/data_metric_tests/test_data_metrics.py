@@ -188,8 +188,8 @@ class TestDataMetricsColumns(DataMetricsBase):
     def models(self):
         yield {"my_model.sql": models.COLUMN_MODEL, "schema.yml": models.COLUMN_SCHEMA_YML}
 
-    def test_column_dmfs_and_local_function(self, project):
-        # A DMF in the model's own schema, referenced by its one-part name.
+    def test_column_dmfs_and_existing_custom_function(self, project):
+        # The binding config uses a fully qualified name for this pre-existing DMF.
         project.run_sql(
             f"create or replace data metric function "
             f"{project.database}.{project.test_schema}.local_null_count("
@@ -215,17 +215,18 @@ class TestDataMetricsColumns(DataMetricsBase):
         assert attached_all(project, "my_model") == [("CORE", "NULL_COUNT", ("STATUS",))]
 
 
-class TestDataMetricsMissingLocalFunction(DataMetricsBase):
+class TestDataMetricsMissingFunction(DataMetricsBase):
     @pytest.fixture(scope="class")
     def models(self):
         yield {"my_model.sql": models.COLUMN_MODEL, "schema.yml": models.COLUMN_SCHEMA_YML}
 
-    def test_missing_local_function_is_skipped(self, project):
-        # `local_null_count` is not built yet (e.g. a dbt function that runs after this
-        # model): the model still builds and binds everything else.
-        _, logs = run_dbt_and_capture(["run"])
-        assert_message_in_logs("skipping data metric functions that do not exist yet", logs)
-        assert ("CORE", "ROW_COUNT", ()) in attached_all(project, "my_model")
+    def test_missing_function_fails_and_can_be_retried(self, project):
+        # A missing DMF must fail the model instead of silently leaving it unbound.
+        results, _ = run_dbt_and_capture(["run"], expect_pass=False)
+        assert len(results.results) == 1
+        result = results.results[0]
+        assert result.status == "error"
+        assert "LOCAL_NULL_COUNT" in result.message.upper()
         schema = project.test_schema.upper()
         assert not [a for a in attached_all(project, "my_model") if a[0] == schema]
 

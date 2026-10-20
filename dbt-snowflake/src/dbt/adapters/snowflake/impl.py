@@ -766,24 +766,6 @@ CALL {proc_name}();
         return SnowflakeDataMetricsConfig.from_relation_config(relation_config)
 
     @available
-    def missing_local_data_metric_functions(
-        self, relation: SnowflakeRelation, desired: SnowflakeDataMetricsConfig
-    ) -> List[str]:
-        """Names of one-part DMFs in `desired` that do not exist yet in the relation's
-        schema. dbt does not order a dbt-built DMF before the models that use it, so a
-        model can build first; the DMF attaches itself to the model when it is built."""
-        local = {a.function[-1].normalized for a in (desired.functions or ()) if a.is_local}
-        if not local:
-            return []
-        schema = self.Relation.create(database=relation.database, schema=relation.schema)
-        _, functions = self.execute(
-            f"show data metric functions in schema {schema.render()}", fetch=True
-        )
-        name_index = [column.lower() for column in functions.column_names].index("name")
-        existing = {row[name_index] for row in functions.rows}
-        return sorted(name for name in local if name not in existing)
-
-    @available
     def describe_data_metrics(
         self, relation: SnowflakeRelation, desired: SnowflakeDataMetricsConfig
     ) -> Dict[str, Any]:

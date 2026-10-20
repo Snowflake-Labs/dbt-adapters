@@ -65,23 +65,6 @@
     {% set current_state = adapter.describe_data_metrics(relation, data_metrics) %}
     {% set changeset = relation.data_metrics_config_changeset(current_state, data_metrics) %}
 
-    {#-- A DMF in the model's schema that is not built yet attaches itself when it is. --#}
-    {% set missing = adapter.missing_local_data_metric_functions(relation, data_metrics) if changeset is not none else [] %}
-    {% if missing %}
-        {{ log("On " ~ relation.render() ~ ": skipping data metric functions that do not exist yet: " ~ missing | join(", "), info=True) }}
-        {% set adds = [] %}
-        {% for association in changeset.adds %}
-            {% if not (association.is_local and association.function[-1].normalized in missing) %}
-                {% do adds.append(association) %}
-            {% endif %}
-        {% endfor %}
-        {% do changeset.adds.clear() %}
-        {% do changeset.adds.extend(adds) %}
-        {% if not changeset.has_changes %}
-            {{ return(none) }}
-        {% endif %}
-    {% endif %}
-
     {% if changeset is none %}
         {{ log("On " ~ relation.render() ~ ": data metric functions already in sync, no changes required.") }}
         {{ return(none) }}

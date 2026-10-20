@@ -176,16 +176,3 @@ def column_data_metric_functions(
         entries = entries or []
         entries += [(setting, {"function": f, "columns": [column_sql]}) for f in functions]
     return entries
-
-
-def data_metrics_local_schema(model: RelationConfig) -> Optional[str]:
-    """The model's `<database>.<schema>`, rendered with the model's quoting."""
-    database, schema = getattr(model, "database", None), getattr(model, "schema", None)
-    if not database or not schema:
-        return None
-    quoting = getattr(model, "quoting_dict", None) or {}
-
-    def render(part: str, component: str) -> str:
-        return '"' + part.replace('"', '""') + '"' if quoting.get(component) else part
-
-    return f"{render(database, 'database')}.{render(schema, 'schema')}"

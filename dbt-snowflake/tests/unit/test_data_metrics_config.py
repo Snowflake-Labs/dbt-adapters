@@ -141,12 +141,12 @@ class TestDataMetricsConfigFromModel:
         [
             ("snowflake.core.null_count", "expected a mapping"),
             ({"columns": ["a"]}, "missing the required `function`"),
-            ({"function": "null_count", "columns": ["a"]}, "or fully qualified as"),
-            ({"function": "core.null_count", "columns": ["a"]}, "or fully qualified as"),
+            ({"function": "null_count", "columns": ["a"]}, "must be fully qualified"),
+            ({"function": "core.null_count", "columns": ["a"]}, "must be fully qualified"),
             ({"function": "snowflake.core.null_count", "columns": "a"}, "expected a list"),
             # `db..fn` is Snowflake shorthand for db.PUBLIC.fn; metadata reports PUBLIC.
-            ({"function": "snowflake..null_count", "columns": ["a"]}, "or fully qualified as"),
-            ({"function": 'snowflake.core."open', "columns": []}, "or fully qualified as"),
+            ({"function": "snowflake..null_count", "columns": ["a"]}, "must be fully qualified"),
+            ({"function": 'snowflake.core."open', "columns": []}, "must be fully qualified"),
             ({"function": "snowflake.core.null_count", "columns": [1]}, "identifier string"),
             (
                 {"function": "snowflake.core.null_count", "columns": ["a"], "expectation": "x"},
@@ -172,36 +172,14 @@ class TestDataMetricsConfigFromModel:
         assert association.function_sql == "snowflake.core.null-count"
         assert association.columns_sql == "a; drop table x, b)"
 
-    def test_one_part_name_resolves_in_model_schema(self):
-        (association,) = SnowflakeDataMetricsConfig.from_relation_config(
-            _FakeModel(
-                database="MY_DB",
-                schema="my_schema",
-                data_metric_functions=[{"function": "count_positive", "columns": ["amount"]}],
-            )
-        ).functions
-        assert association.function_sql == "MY_DB.my_schema.count_positive"
-        assert association.key == (("MY_DB", "MY_SCHEMA", "COUNT_POSITIVE"), ("AMOUNT",))
-
-    def test_one_part_name_follows_model_quoting(self):
-        (association,) = SnowflakeDataMetricsConfig.from_relation_config(
-            _FakeModel(
-                database="My Db",
-                schema="my_schema",
-                quoting={"database": True},
-                data_metric_functions=[{"function": '"Count Positive"'}],
-            )
-        ).functions
-        assert association.function_sql == '"My Db".my_schema."Count Positive"'
-        assert association.key == (("My Db", "MY_SCHEMA", "Count Positive"), ())
-
-    def test_two_part_name_is_still_rejected(self):
-        with pytest.raises(DbtConfigError, match="or fully qualified as"):
+    @pytest.mark.parametrize("function", ["count_positive", '"Count Positive"', "core.null_count"])
+    def test_partial_names_are_rejected_even_with_model_schema(self, function):
+        with pytest.raises(DbtConfigError, match="must be fully qualified"):
             SnowflakeDataMetricsConfig.from_relation_config(
                 _FakeModel(
                     database="MY_DB",
                     schema="MY_SCHEMA",
-                    data_metric_functions=[{"function": "core.null_count"}],
+                    data_metric_functions=[{"function": function}],
                 )
             )
 
@@ -231,7 +209,11 @@ class TestColumnDataMetricFunctions:
             _FakeModel(
                 database="MY_DB",
                 schema="MY_SCHEMA",
-                columns={"status": _column("snowflake.core.null_count", "count_positive")},
+                columns={
+                    "status": _column(
+                        "snowflake.core.null_count", "MY_DB.MY_SCHEMA.count_positive"
+                    )
+                },
             )
         )
         assert config.is_configured
