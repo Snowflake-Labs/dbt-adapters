@@ -235,20 +235,16 @@ class SnowflakeDataMetricsConfig(SnowflakeRelationConfigBase):
                 "Unexpected data_metric_functions configuration: expected a list of "
                 f"{{function, columns}} mappings, got {entries!r}"
             )
-        column_entries = parse_model.column_data_metric_functions(relation_config)
-
-        # Set on the model or on any column, dbt manages the model's full set of DMFs.
+        # Model config owns the full set of DMF associations.
         functions: Optional[Tuple[SnowflakeDataMetricFunctionAssociation, ...]] = None
-        if entries is not None or column_entries is not None:
-            settings = [(f"data_metric_functions[{i}]", e) for i, e in enumerate(entries or [])]
-            settings += column_entries or []
+        if entries is not None:
             functions_by_key: Dict[
                 Tuple[Tuple[str, ...], Tuple[str, ...]],
                 SnowflakeDataMetricFunctionAssociation,
             ] = {}
-            for setting, entry in settings:
+            for i, entry in enumerate(entries):
                 association = SnowflakeDataMetricFunctionAssociation.from_config_entry(
-                    entry, setting
+                    entry, f"data_metric_functions[{i}]"
                 )
                 functions_by_key.setdefault(association.key, association)
             functions = tuple(functions_by_key.values())

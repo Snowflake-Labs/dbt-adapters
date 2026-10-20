@@ -25,7 +25,7 @@ from dbt.tests.adapter.functions.test_udfs import (
 from dbt.tests.util import run_dbt, write_file
 from dbt_common.events.event_catcher import EventCatcher
 from tests.functional.functions.files import (
-    MY_DMF_COLUMN_MODEL_YML,
+    MY_DMF_INCREMENTAL_MODEL_YML,
     MY_DMF_MODEL_SQL,
     MY_DMF_MODEL_YAML_SQL,
     MY_DMF_MODEL_YML,
@@ -141,8 +141,8 @@ class TestSnowflakeDataMetricFunctionBinding:
             "my_model.sql": MY_DMF_MODEL_SQL,
             "yaml_model.sql": MY_DMF_MODEL_YAML_SQL,
             "yaml_model.yml": MY_DMF_MODEL_YML,
-            "column_model.sql": MY_DMF_MODEL_YAML_SQL,
-            "column_model.yml": MY_DMF_COLUMN_MODEL_YML,
+            "incremental_model.sql": MY_DMF_MODEL_YAML_SQL,
+            "incremental_model.yml": MY_DMF_INCREMENTAL_MODEL_YML,
         }
 
     def _bound_metrics(self, project, name):
@@ -157,7 +157,7 @@ class TestSnowflakeDataMetricFunctionBinding:
     def test_explicit_dependency_is_recorded(self, project):
         manifest = run_dbt(["parse"])
         function = next(iter(manifest.functions.values()))
-        for name in ("my_model", "yaml_model", "column_model"):
+        for name in ("my_model", "yaml_model", "incremental_model"):
             node = next(node for node in manifest.nodes.values() if node.name == name)
             assert function.unique_id in node.depends_on.nodes
 
@@ -176,10 +176,10 @@ class TestSnowflakeDataMetricFunctionBinding:
         assert {event.data.node_info.node_name for event in events[1:]} == {
             "my_model",
             "yaml_model",
-            "column_model",
+            "incremental_model",
         }
         expected = [(project.database.upper(), project.test_schema.upper(), "COUNT_POSITIVE")]
-        for name in ("my_model", "yaml_model", "column_model"):
+        for name in ("my_model", "yaml_model", "incremental_model"):
             assert self._bound_metrics(project, name) == expected
 
     def test_function_selection_does_not_attach_to_unselected_models(self, project):
@@ -189,25 +189,25 @@ class TestSnowflakeDataMetricFunctionBinding:
         # Updating the function preserves existing associations.
         results = run_dbt(["build", "--select", "count_positive"])
         assert [result.node.name for result in results.results] == ["count_positive"]
-        for name in ("my_model", "yaml_model", "column_model"):
+        for name in ("my_model", "yaml_model", "incremental_model"):
             assert self._bound_metrics(project, name) == expected
 
         # If a binding is missing, a function-only build must leave the model alone.
-        for name in ("my_model", "yaml_model", "column_model"):
+        for name in ("my_model", "yaml_model", "incremental_model"):
             project.run_sql(
                 f"alter table {project.database}.{project.test_schema}.{name} "
                 f"drop data metric function "
                 f"{project.database}.{project.test_schema}.count_positive on (amount)"
             )
         run_dbt(["build", "--select", "count_positive"])
-        for name in ("my_model", "yaml_model", "column_model"):
+        for name in ("my_model", "yaml_model", "incremental_model"):
             assert self._bound_metrics(project, name) == []
 
         # Selecting a model with its ancestors builds the function and that model only.
         results = run_dbt(["build", "--select", "+yaml_model", "--threads", "4"])
         assert {result.node.name for result in results.results} == {"count_positive", "yaml_model"}
         assert self._bound_metrics(project, "yaml_model") == expected
-        for name in ("my_model", "column_model"):
+        for name in ("my_model", "incremental_model"):
             assert self._bound_metrics(project, name) == []
 
     def test_failed_function_skips_dependent_models(self, project):
@@ -224,7 +224,7 @@ class TestSnowflakeDataMetricFunctionBinding:
                 "count_positive": RunStatus.Error,
                 "my_model": RunStatus.Skipped,
                 "yaml_model": RunStatus.Skipped,
-                "column_model": RunStatus.Skipped,
+                "incremental_model": RunStatus.Skipped,
             }
         finally:
             write_file(MY_DMF_SQL, project.project_root, "functions", "count_positive.sql")

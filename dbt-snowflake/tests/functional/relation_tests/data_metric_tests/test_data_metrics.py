@@ -183,12 +183,12 @@ def attached_all(project, name: str) -> List[Tuple[str, str, Tuple[str, ...]]]:
     )
 
 
-class TestDataMetricsColumns(DataMetricsBase):
+class TestDataMetricsModelYaml(DataMetricsBase):
     @pytest.fixture(scope="class")
     def models(self):
-        yield {"my_model.sql": models.COLUMN_MODEL, "schema.yml": models.COLUMN_SCHEMA_YML}
+        yield {"my_model.sql": models.YAML_MODEL, "schema.yml": models.MODEL_SCHEMA_YML}
 
-    def test_column_dmfs_and_existing_custom_function(self, project):
+    def test_model_yaml_dmfs_and_existing_custom_function(self, project):
         # The binding config uses a fully qualified name for this pre-existing DMF.
         project.run_sql(
             f"create or replace data metric function "
@@ -209,16 +209,48 @@ class TestDataMetricsColumns(DataMetricsBase):
         _, logs = run_dbt_and_capture(["--debug", "run"])
         assert_message_in_logs("data metric functions already in sync", logs)
 
-        # Removing entries from the model and from a column drops them.
-        write_file(models.COLUMN_SCHEMA_YML_REMOVED, project.project_root, "models", "schema.yml")
+        # Removing entries from the model's desired set drops those associations.
+        write_file(models.MODEL_SCHEMA_YML_REMOVED, project.project_root, "models", "schema.yml")
         run_dbt(["run"])
         assert attached_all(project, "my_model") == [("CORE", "NULL_COUNT", ("STATUS",))]
+
+
+class TestDataMetricsMultipleColumns(DataMetricsBase):
+    @pytest.fixture(scope="class")
+    def models(self):
+        return {
+            "my_model.sql": """
+{{ config(
+    materialized='incremental',
+    data_metric_functions=[{
+        'function': target.database ~ '.' ~ target.schema ~ '.invalid_order_count',
+        'columns': ['status', 'amount'],
+    }],
+) }}
+select id, status, amount::number as amount from {{ ref('my_seed') }}
+"""
+        }
+
+    def test_ordered_columns_and_idempotent_rerun(self, project):
+        project.run_sql(
+            f"create or replace data metric function "
+            f"{project.database}.{project.test_schema}.invalid_order_count("
+            "arg_t table(arg_status varchar, arg_amount number)) returns number as "
+            "'select count_if(arg_status is null and arg_amount < 0) from arg_t'"
+        )
+        run_dbt(["run"])
+        expected = [(project.test_schema.upper(), "INVALID_ORDER_COUNT", ("STATUS", "AMOUNT"))]
+        assert attached_all(project, "my_model") == expected
+
+        _, logs = run_dbt_and_capture(["--debug", "run"])
+        assert_no_dmf_ddl(logs)
+        assert attached_all(project, "my_model") == expected
 
 
 class TestDataMetricsMissingFunction(DataMetricsBase):
     @pytest.fixture(scope="class")
     def models(self):
-        yield {"my_model.sql": models.COLUMN_MODEL, "schema.yml": models.COLUMN_SCHEMA_YML}
+        yield {"my_model.sql": models.YAML_MODEL, "schema.yml": models.MODEL_SCHEMA_YML}
 
     def test_missing_function_fails_and_can_be_retried(self, project):
         # A missing DMF must fail the model instead of silently leaving it unbound.

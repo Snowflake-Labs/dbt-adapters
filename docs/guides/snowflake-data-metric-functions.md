@@ -16,15 +16,18 @@ models:
         - function: SNOWFLAKE.CORE.ROW_COUNT
         - function: SNOWFLAKE.CORE.NULL_COUNT
           columns: [status]
-    columns:
-      - name: amount
-        data_metric_functions:
-          - SNOWFLAKE.CORE.NULL_COUNT
+        - function: SNOWFLAKE.CORE.NULL_COUNT
+          columns: [amount]
 ```
 
-Model-level and column-level declarations form one desired set. Omitting all
-`data_metric_functions` declarations leaves associations unmanaged. Setting
-`data_metric_functions: []` on the model, with no column-level declarations,
+Declare all bindings in model-level `config.data_metric_functions`, including
+single-column bindings. Column-level declarations are not supported. Each
+binding specifies a function and an ordered list of input columns; the list
+can contain multiple columns. Omit `columns` or use `columns: []` for functions
+such as `ROW_COUNT` that take no input columns.
+
+Omitting `data_metric_functions` leaves associations unmanaged. Setting
+`data_metric_functions: []`
 removes every existing association, including associations created outside dbt.
 Omitting `data_metric_schedule` leaves the schedule unmanaged; an explicit
 `null` schedule is rejected.

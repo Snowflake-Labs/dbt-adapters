@@ -234,13 +234,12 @@ models:
           columns: [amount]
 """
 
-MY_DMF_COLUMN_MODEL_YML = """
+MY_DMF_INCREMENTAL_MODEL_YML = """
 models:
-  - name: column_model
+  - name: incremental_model
     config:
       materialized: incremental
-    columns:
-      - name: amount
-        data_metric_functions:
-          - "{{ target.database }}.{{ target.schema }}.count_positive"
+      data_metric_functions:
+        - function: "{{ target.database }}.{{ target.schema }}.count_positive"
+          columns: [amount]
 """
