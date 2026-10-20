@@ -133,6 +133,46 @@ class TestDataMetricsConfigFromModel:
         assert association.function_sql == '"my.db"."My ""Schema"""."My.Dmf"'
 
     @pytest.mark.parametrize(
+        "column",
+        [
+            '"Order "Id"',
+            '"amount',
+            'amount"',
+            '"',
+            'amo"unt',
+            'amount""',
+            '"amount"suffix',
+            '"amount"."other"',
+            '"amount""',
+        ],
+    )
+    def test_malformed_identifier_quotes_are_rejected(self, column):
+        with pytest.raises(DbtConfigError, match="Invalid.*identifier") as exc:
+            _data_metrics(
+                data_metric_functions=[
+                    {"function": "snowflake.core.null_count", "columns": [column]}
+                ]
+            )
+        assert "data_metric_functions[0]" in str(exc.value)
+        assert repr(column) in str(exc.value)
+
+    @pytest.mark.parametrize(
+        "column,sql,normalized",
+        [
+            ('"Order ""Id"""', '"Order ""Id"""', 'Order "Id"'),
+            ('"a""""b"', '"a""""b"', 'a""b'),
+            ('  "Order Id"  ', '"Order Id"', "Order Id"),
+            (" amount ", "amount", "AMOUNT"),
+        ],
+    )
+    def test_valid_identifier_quotes_and_normalization(self, column, sql, normalized):
+        (association,) = _data_metrics(
+            data_metric_functions=[{"function": "snowflake.core.null_count", "columns": [column]}]
+        ).functions
+        assert association.columns_sql == sql
+        assert association.key[1] == (normalized,)
+
+    @pytest.mark.parametrize(
         "entry,message",
         [
             ("snowflake.core.null_count", "expected a mapping"),

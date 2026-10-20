@@ -45,15 +45,24 @@ class SnowflakeIdentifier:
 
 def _parse_identifier(text: Any, setting: str) -> SnowflakeIdentifier:
     """Normalizes a name the way Snowflake stores it, so it compares against metadata.
-    The name itself is not validated; Snowflake rejects an invalid one in the DDL."""
+    Quote structure is checked; other name validity is left to Snowflake."""
     if not isinstance(text, str):
         raise DbtConfigError(f"Expected an identifier string in {setting}, got {text!r}")
     stripped = text.strip()
     if len(stripped) >= 2 and stripped.startswith('"') and stripped.endswith('"'):
         inner = stripped[1:-1]
         # every quote inside must be part of a doubled escape
-        if '"' not in inner.replace('""', ""):
-            return SnowflakeIdentifier(sql=stripped, normalized=inner.replace('""', '"'))
+        if '"' in inner.replace('""', ""):
+            raise DbtConfigError(
+                f"Invalid quoted identifier {text!r} in {setting}: "
+                'double quotes inside an identifier must be escaped as ""'
+            )
+        return SnowflakeIdentifier(sql=stripped, normalized=inner.replace('""', '"'))
+    if '"' in stripped:
+        raise DbtConfigError(
+            f"Invalid identifier {text!r} in {setting}: "
+            "double quotes must enclose the entire identifier"
+        )
     return SnowflakeIdentifier(sql=stripped, normalized=stripped.upper())
 
 
