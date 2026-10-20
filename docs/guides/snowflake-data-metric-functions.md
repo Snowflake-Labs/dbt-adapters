@@ -39,7 +39,9 @@ binding DDL when an incremental model's state already matches.
 
 Every function name must be fully qualified as
 `<database>.<schema>.<function>`, including custom DMFs in the model's schema.
-Quoted identifiers are supported. A missing DMF causes the model to fail;
+Quoted identifiers are supported; embedded double quotes must be escaped as
+two double quotes. Malformed identifier quoting raises a configuration error.
+A missing DMF causes the model to fail;
 dbt does not skip the binding or create the function implicitly. Snowflake
 validates privileges, schedules, function signatures, and column names.
 
