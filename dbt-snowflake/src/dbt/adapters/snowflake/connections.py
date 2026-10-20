@@ -523,6 +523,10 @@ class SnowflakeConnectionManager(SQLConnectionManager):
         "Splits sql statements at semicolons into discrete queries"
 
         sql_s = str(sql)
+        # split_statements scans per character in Python, which takes seconds on large inserts.
+        # Without a ';' or a line-leading '!' command it can only return the stripped input.
+        if ";" not in sql_s and not sql_s.startswith("!") and "\n!" not in sql_s:
+            return [sql_s.strip()] if sql_s else []
         sql_buf = StringIO(sql_s)
         split_query = snowflake.connector.util_text.split_statements(sql_buf)
         return [part[0] for part in split_query]
