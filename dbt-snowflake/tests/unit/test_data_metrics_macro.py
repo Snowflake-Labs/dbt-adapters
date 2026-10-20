@@ -112,6 +112,24 @@ class TestSnowflakeDataMetricsMacros(unittest.TestCase):
             'alter table test_db.test_schema.test_model drop data metric function "SNOWFLAKE"."CORE"."NULL_COUNT" on ("STATUS")',
         ]
 
+    def test_schedule_is_escaped_as_a_single_sql_literal(self):
+        cases = [
+            ("5 MINUTE", "5 MINUTE"),
+            ("", ""),
+            ("O'Hare", "O''Hare"),
+            ("two '' quotes", "two '''' quotes"),
+            ("backslash\\'quote", "backslash\\\\''quote"),
+        ]
+        for schedule, escaped in cases:
+            with self.subTest(schedule=schedule):
+                sql = self.template.module.snowflake__get_set_data_metric_schedule_sql(
+                    _Relation("table"), schedule
+                )
+                assert re.sub(r"\s+", " ", sql.strip()) == (
+                    "alter table test_db.test_schema.test_model "
+                    f"set data_metric_schedule = '{escaped}'"
+                )
+
     def test_view_uses_alter_view(self):
         changeset = self._changeset(adds=[_association("snowflake.core.row_count", "")])
         assert self._render_statements(_Relation("view"), changeset) == [
