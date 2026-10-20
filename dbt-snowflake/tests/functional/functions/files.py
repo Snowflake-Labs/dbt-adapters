@@ -205,17 +205,24 @@ functions:
       data_type: NUMBER
 """
 
-# A table model that attaches the dbt-built DMF above by its one-part name; it is
-# built in the model's schema, so the name resolves there.
+# The function reference in the SQL comment records a DAG dependency. The binding
+# itself names the Snowflake object explicitly, just like a binding in schema YAML.
 MY_DMF_MODEL_SQL = """
+-- depends_on: {{ function('count_positive') }}
 {{ config(
     materialized='table',
-    data_metric_functions=[{'function': 'count_positive', 'columns': ['amount']}],
+    data_metric_functions=[{
+        'function': target.database ~ '.' ~ target.schema ~ '.count_positive',
+        'columns': ['amount'],
+    }],
 ) }}
 select 1::number as amount union all select -1::number
 """.strip()
 
-MY_DMF_MODEL_YAML_SQL = "select 1::number as amount union all select -1::number"
+MY_DMF_MODEL_YAML_SQL = """
+-- depends_on: {{ function('count_positive') }}
+select 1::number as amount union all select -1::number
+""".strip()
 
 MY_DMF_MODEL_YML = """
 models:
@@ -223,7 +230,7 @@ models:
     config:
       materialized: table
       data_metric_functions:
-        - function: count_positive
+        - function: "{{ target.database }}.{{ target.schema }}.count_positive"
           columns: [amount]
 """
 
@@ -234,5 +241,6 @@ models:
       materialized: incremental
     columns:
       - name: amount
-        data_metric_functions: [count_positive]
+        data_metric_functions:
+          - "{{ target.database }}.{{ target.schema }}.count_positive"
 """

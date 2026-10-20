@@ -57,22 +57,16 @@ def _parse_identifier(text: Any, setting: str) -> SnowflakeIdentifier:
     return SnowflakeIdentifier(sql=stripped, normalized=stripped.upper())
 
 
-def _parse_function_name(
-    text: Any, setting: str, local_schema: Optional[str] = None
-) -> Tuple[SnowflakeIdentifier, ...]:
-    """`local_schema` is the model's `<database>.<schema>`; a one-part name is resolved
-    in it, the way an unqualified name would be resolved next to the model."""
+def _parse_function_name(text: Any, setting: str) -> Tuple[SnowflakeIdentifier, ...]:
     if not isinstance(text, str):
         raise DbtConfigError(f"Expected a function name string in {setting}, got {text!r}")
-    if local_schema and re.fullmatch(_NAME_PART, text):
-        text = f"{local_schema}.{text.strip()}"
     match = _FUNCTION_NAME.fullmatch(text)
     # Metadata always reports database.schema.name, so a partially qualified
     # name could never be matched against it reliably.
     if match is None:
         raise DbtConfigError(
-            f"Invalid data metric function {text!r} in {setting}: must be a function in the "
-            "model's schema or fully qualified as <database>.<schema>.<function>, e.g. "
+            f"Invalid data metric function {text!r} in {setting}: must be fully qualified "
+            "as <database>.<schema>.<function>, e.g. "
             "SNOWFLAKE.CORE.NULL_COUNT"
         )
     return tuple(_parse_identifier(part, setting) for part in match.groups())
@@ -128,8 +122,6 @@ class SnowflakeDataMetricFunctionAssociation:
 
     function: Tuple[SnowflakeIdentifier, ...]
     columns: Tuple[SnowflakeIdentifier, ...] = field(default_factory=tuple)
-    # Given as a one-part name, so it is a function in the model's own schema.
-    is_local: bool = field(default=False, compare=False, hash=False)
 
     @property
     def key(self) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
@@ -148,9 +140,7 @@ class SnowflakeDataMetricFunctionAssociation:
         return ", ".join(column.sql for column in self.columns)
 
     @classmethod
-    def from_config_entry(
-        cls, entry: Any, setting: str, local_schema: Optional[str] = None
-    ) -> Self:
+    def from_config_entry(cls, entry: Any, setting: str) -> Self:
         if not isinstance(entry, dict):
             raise DbtConfigError(
                 f"Unexpected {setting}: expected a mapping with `function` and optional "
@@ -175,10 +165,7 @@ class SnowflakeDataMetricFunctionAssociation:
             )
         function = entry["function"]
         return cls(
-            is_local=bool(
-                local_schema and isinstance(function, str) and re.fullmatch(_NAME_PART, function)
-            ),
-            function=_parse_function_name(function, setting, local_schema),
+            function=_parse_function_name(function, setting),
             columns=tuple(_parse_identifier(column, setting) for column in columns),
         )
 
@@ -253,7 +240,6 @@ class SnowflakeDataMetricsConfig(SnowflakeRelationConfigBase):
         # Set on the model or on any column, dbt manages the model's full set of DMFs.
         functions: Optional[Tuple[SnowflakeDataMetricFunctionAssociation, ...]] = None
         if entries is not None or column_entries is not None:
-            local_schema = parse_model.data_metrics_local_schema(relation_config)
             settings = [(f"data_metric_functions[{i}]", e) for i, e in enumerate(entries or [])]
             settings += column_entries or []
             functions_by_key: Dict[
@@ -262,7 +248,7 @@ class SnowflakeDataMetricsConfig(SnowflakeRelationConfigBase):
             ] = {}
             for setting, entry in settings:
                 association = SnowflakeDataMetricFunctionAssociation.from_config_entry(
-                    entry, setting, local_schema
+                    entry, setting
                 )
                 functions_by_key.setdefault(association.key, association)
             functions = tuple(functions_by_key.values())

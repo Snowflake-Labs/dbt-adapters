@@ -22,7 +22,7 @@ from dbt.tests.adapter.functions.test_udfs import (
     CanFindScalarFunctionRelation,
     PythonUDFWithPackagesSupported,
 )
-from dbt.tests.util import run_dbt
+from dbt.tests.util import run_dbt, write_file
 from dbt_common.events.event_catcher import EventCatcher
 from tests.functional.functions.files import (
     MY_DMF_COLUMN_MODEL_YML,
@@ -154,32 +154,80 @@ class TestSnowflakeDataMetricFunctionBinding:
             fetch="all",
         )
 
-    def test_model_binds_dbt_built_dmf(self, project):
-        # One fresh build: whichever of the DMF and the models finishes first, the
-        # binding ends up in place.
-        run_dbt(["build", "--threads", "4"])
+    def test_explicit_dependency_is_recorded(self, project):
+        manifest = run_dbt(["parse"])
+        function = next(iter(manifest.functions.values()))
+        for name in ("my_model", "yaml_model", "column_model"):
+            node = next(node for node in manifest.nodes.values() if node.name == name)
+            assert function.unique_id in node.depends_on.nodes
+
+    def test_function_is_built_before_model_bindings(self, project):
+        sql_event_catcher = EventCatcher(
+            event_to_catch=SQLQuery,
+            predicate=lambda event: "create or alter data metric function"
+            in event.data.sql.lower()
+            or "add data metric function" in event.data.sql.lower(),
+        )
+        results = run_dbt(["build", "--threads", "4"], callbacks=[sql_event_catcher.catch])
+        assert all(result.status == RunStatus.Success for result in results.results)
+        events = sql_event_catcher.caught_events
+        assert len(events) == 4
+        assert events[0].data.node_info.node_name == "count_positive"
+        assert {event.data.node_info.node_name for event in events[1:]} == {
+            "my_model",
+            "yaml_model",
+            "column_model",
+        }
         expected = [(project.database.upper(), project.test_schema.upper(), "COUNT_POSITIVE")]
         for name in ("my_model", "yaml_model", "column_model"):
             assert self._bound_metrics(project, name) == expected
 
-    def test_models_built_before_the_dmf(self, project):
-        # Force the order: models first while the DMF does not exist, then the DMF.
-        project.run_sql(
-            f"drop function if exists "
-            f"{project.database}.{project.test_schema}.count_positive(TABLE(NUMBER))"
-        )
-        run_dbt(["build", "--select", "resource_type:model"])
+    def test_function_selection_does_not_attach_to_unselected_models(self, project):
+        run_dbt(["build"])
+        expected = [(project.database.upper(), project.test_schema.upper(), "COUNT_POSITIVE")]
+
+        # Updating the function preserves existing associations.
+        results = run_dbt(["build", "--select", "count_positive"])
+        assert [result.node.name for result in results.results] == ["count_positive"]
+        for name in ("my_model", "yaml_model", "column_model"):
+            assert self._bound_metrics(project, name) == expected
+
+        # If a binding is missing, a function-only build must leave the model alone.
+        for name in ("my_model", "yaml_model", "column_model"):
+            project.run_sql(
+                f"alter table {project.database}.{project.test_schema}.{name} "
+                f"drop data metric function "
+                f"{project.database}.{project.test_schema}.count_positive on (amount)"
+            )
+        run_dbt(["build", "--select", "count_positive"])
         for name in ("my_model", "yaml_model", "column_model"):
             assert self._bound_metrics(project, name) == []
 
-        run_dbt(["build", "--select", "count_positive"])
-        expected = [(project.database.upper(), project.test_schema.upper(), "COUNT_POSITIVE")]
-        for name in ("my_model", "yaml_model", "column_model"):
-            assert self._bound_metrics(project, name) == expected
+        # Selecting a model with its ancestors builds the function and that model only.
+        results = run_dbt(["build", "--select", "+yaml_model", "--threads", "4"])
+        assert {result.node.name for result in results.results} == {"count_positive", "yaml_model"}
+        assert self._bound_metrics(project, "yaml_model") == expected
+        for name in ("my_model", "column_model"):
+            assert self._bound_metrics(project, name) == []
 
-        # Rebuilding the function with CREATE OR ALTER keeps the binding.
-        run_dbt(["build", "--select", "count_positive"])
-        assert self._bound_metrics(project, "my_model") == expected
+    def test_failed_function_skips_dependent_models(self, project):
+        write_file(
+            "select missing_column from arg_t",
+            project.project_root,
+            "functions",
+            "count_positive.sql",
+        )
+        try:
+            results = run_dbt(["build", "--threads", "4"], expect_pass=False)
+            statuses = {result.node.name: result.status for result in results.results}
+            assert statuses == {
+                "count_positive": RunStatus.Error,
+                "my_model": RunStatus.Skipped,
+                "yaml_model": RunStatus.Skipped,
+                "column_model": RunStatus.Skipped,
+            }
+        finally:
+            write_file(MY_DMF_SQL, project.project_root, "functions", "count_positive.sql")
 
 
 class TestSnowflakePythonUDFSupported(PythonUDFSupported):
