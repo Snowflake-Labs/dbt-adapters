@@ -37,7 +37,8 @@
 
 {% macro snowflake__get_set_data_metric_schedule_sql(relation, schedule) %}
 
-    {{ snowflake__get_alter_data_metrics_prefix(relation) }} set data_metric_schedule = '{{ schedule }}'
+    {% set escaped_schedule = schedule | replace('\\', '\\\\') | replace("'", "''") %}
+    {{ snowflake__get_alter_data_metrics_prefix(relation) }} set data_metric_schedule = '{{ escaped_schedule }}'
 
 {% endmacro %}
 

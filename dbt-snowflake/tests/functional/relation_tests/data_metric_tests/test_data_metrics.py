@@ -91,6 +91,16 @@ class TestDataMetricsTable(DataMetricsBase):
         _, logs = run_dbt_and_capture(["--debug", "run"], expect_pass=False)
         assert "Invalid schedule was specified" in logs
 
+    @pytest.mark.parametrize("value", ["O'Hare", "two '' quotes", "backslash\\'quote"])
+    def test_schedule_quotes_are_rejected_as_invalid_values_not_sql(self, project, value):
+        update_model(
+            project, "my_model", models.model("table", f", data_metric_schedule={value!r}")
+        )
+        results, _ = run_dbt_and_capture(["run"], expect_pass=False)
+        assert len(results.results) == 1
+        assert results.results[0].status == "error"
+        assert "Invalid schedule was specified" in results.results[0].message
+
 
 class TestDataMetricsView(DataMetricsBase):
     @pytest.fixture(scope="class")

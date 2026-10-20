@@ -57,6 +57,7 @@ from dbt.adapters.snowflake.relation_configs import (
     SnowflakeDataMetricsConfig,
     SnowflakeRelationType,
 )
+from dbt.adapters.snowflake.relation_configs.data_metrics import SnowflakeIdentifier
 from dbt.adapters.snowflake.relation_configs.interactive_table import INTERACTIVE_TABLE_COLUMNS
 
 from dbt.adapters.snowflake import SnowflakeColumn
@@ -782,7 +783,9 @@ CALL {proc_name}();
         results: Dict[str, Any] = {}
         if desired.functions is not None:
             quoting = relation.quote_policy
-            database = f'"{relation.database}"' if quoting.database else relation.database
+            database = relation.database
+            if quoting.database and database is not None:
+                database = SnowflakeIdentifier.from_metadata(database).sql
             references_sql = (
                 "select metric_database_name, metric_schema_name, metric_name, ref_arguments "
                 f"from table({database}.information_schema.data_metric_function_references("
