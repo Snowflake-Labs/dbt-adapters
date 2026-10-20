@@ -57,31 +57,30 @@ DYNAMIC_TABLE = dynamic_table(NULL_COUNT_AND_ROW_COUNT)
 DYNAMIC_TABLE_ROW_COUNT_ONLY = dynamic_table(ROW_COUNT_ONLY)
 
 
-# DMFs set on columns in schema YAML, including a pre-existing custom DMF.
-COLUMN_MODEL = "select * from {{ ref('my_seed') }}"
+# Model-level bindings in schema YAML, including a pre-existing custom DMF.
+YAML_MODEL = "select * from {{ ref('my_seed') }}"
 
-COLUMN_SCHEMA_YML = """
+MODEL_SCHEMA_YML = """
 models:
   - name: my_model
     config:
       materialized: incremental
       data_metric_functions:
         - function: snowflake.core.row_count
-    columns:
-      - name: status
-        data_metric_functions:
-          - snowflake.core.null_count
-          - "{{ target.database }}.{{ target.schema }}.local_null_count"
-      - name: amount
-        data_metric_functions: [snowflake.core.null_count]
+        - function: snowflake.core.null_count
+          columns: [status]
+        - function: "{{ target.database }}.{{ target.schema }}.local_null_count"
+          columns: [status]
+        - function: snowflake.core.null_count
+          columns: [amount]
 """
 
-COLUMN_SCHEMA_YML_REMOVED = """
+MODEL_SCHEMA_YML_REMOVED = """
 models:
   - name: my_model
     config:
       materialized: incremental
-    columns:
-      - name: status
-        data_metric_functions: [snowflake.core.null_count]
+      data_metric_functions:
+        - function: snowflake.core.null_count
+          columns: [status]
 """

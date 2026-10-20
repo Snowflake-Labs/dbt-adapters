@@ -39,10 +39,6 @@ class _FakeModel:
         self.columns = columns or {}
 
 
-def _column(*functions, quote=None):
-    return {"_extra": {"data_metric_functions": list(functions)}, "quote": quote}
-
-
 def _reference(function, *columns, raw_arguments=None):
     database, schema, name = function.split(".")
     arguments = (
@@ -202,74 +198,29 @@ class TestDataMetricsConfigFromModel:
         assert len(config.functions) == 1
         assert config.functions[0].function_sql == "snowflake.core.null_count"
 
-
-class TestColumnDataMetricFunctions:
-    def test_column_entries_bind_that_column(self):
-        config = SnowflakeDataMetricsConfig.from_relation_config(
-            _FakeModel(
-                database="MY_DB",
-                schema="MY_SCHEMA",
-                columns={
-                    "status": _column(
-                        "snowflake.core.null_count", "MY_DB.MY_SCHEMA.count_positive"
-                    )
-                },
-            )
+    def test_multiple_columns_preserve_argument_order(self):
+        config = _data_metrics(
+            data_metric_functions=[
+                {"function": "my_db.my_schema.compare_values", "columns": ["amount", "limit"]},
+                {"function": "my_db.my_schema.compare_values", "columns": ["limit", "amount"]},
+            ]
         )
-        assert config.is_configured
-        assert [a.key for a in config.functions] == [
-            (("SNOWFLAKE", "CORE", "NULL_COUNT"), ("STATUS",)),
-            (("MY_DB", "MY_SCHEMA", "COUNT_POSITIVE"), ("STATUS",)),
-        ]
+        first, second = config.functions
+        assert first.columns_sql == "amount, limit"
+        assert second.columns_sql == "limit, amount"
+        assert first.key != second.key
 
-    def test_combined_with_model_level_and_deduplicated(self):
-        config = SnowflakeDataMetricsConfig.from_relation_config(
-            _FakeModel(
-                data_metric_functions=[
-                    {"function": "snowflake.core.row_count"},
-                    {"function": "snowflake.core.null_count", "columns": ["status"]},
-                ],
-                columns={"status": _column("SNOWFLAKE.CORE.NULL_COUNT")},
-            )
+    def test_same_function_can_bind_different_columns(self):
+        config = _data_metrics(
+            data_metric_functions=[
+                {"function": "snowflake.core.null_count", "columns": ["status"]},
+                {"function": "snowflake.core.null_count", "columns": ["amount"]},
+            ]
         )
         assert [a.key for a in config.functions] == [
-            (("SNOWFLAKE", "CORE", "ROW_COUNT"), ()),
             (("SNOWFLAKE", "CORE", "NULL_COUNT"), ("STATUS",)),
+            (("SNOWFLAKE", "CORE", "NULL_COUNT"), ("AMOUNT",)),
         ]
-
-    def test_quoted_column_keeps_its_case(self):
-        (association,) = SnowflakeDataMetricsConfig.from_relation_config(
-            _FakeModel(columns={"Order Id": _column("snowflake.core.null_count", quote=True)})
-        ).functions
-        assert association.columns_sql == '"Order Id"'
-        assert association.key[1] == ("Order Id",)
-
-    def test_empty_column_list_still_manages_dmfs(self):
-        config = SnowflakeDataMetricsConfig.from_relation_config(
-            _FakeModel(columns={"status": _column()})
-        )
-        assert config.functions == ()
-        assert config.is_configured
-
-    def test_no_column_key_leaves_dmfs_unmanaged(self):
-        config = SnowflakeDataMetricsConfig.from_relation_config(
-            _FakeModel(columns={"status": {"_extra": {}, "quote": None}})
-        )
-        assert config.functions is None
-        assert not config.is_configured
-
-    def test_column_value_must_be_a_list(self):
-        with pytest.raises(DbtConfigError, match="columns.status.data_metric_functions"):
-            SnowflakeDataMetricsConfig.from_relation_config(
-                _FakeModel(
-                    columns={
-                        "status": {
-                            "_extra": {"data_metric_functions": "snowflake.core.null_count"},
-                            "quote": None,
-                        }
-                    }
-                )
-            )
 
 
 class TestDataMetricSchedule:
