@@ -17,7 +17,6 @@ if TYPE_CHECKING:
 
 FUNCTION_NAME_COLUMNS = ("metric_database_name", "metric_schema_name", "metric_name")
 
-_OBJECT_LEVELS = {"TABLE", "VIEW"}
 _FUNCTION_ENTRY_KEYS = {"function", "columns"}
 
 _MINUTE_SCHEDULE = re.compile(r"(\d+)\s+MINUTES?", re.IGNORECASE)
@@ -285,9 +284,10 @@ class SnowflakeDataMetricsConfig(SnowflakeRelationConfigBase):
         if parameters is not None:
             parameters = _lowercase_columns(cast("agate.Table", parameters))
             parameter = parameters.rows[0]
-            level = str(parameter.get("level") or "").upper()
             value = parameter.get("value")
-            if level in _OBJECT_LEVELS and value is not None:
+            # Compare the effective value, including Snowflake's default,
+            # regardless of whether it was explicitly set on the object.
+            if value is not None:
                 if not isinstance(value, str):
                     raise DbtRuntimeError(
                         "Could not parse DATA_METRIC_SCHEDULE value from "
