@@ -184,3 +184,62 @@ functions:
     returns:
       data_type: float
 """
+
+
+# --- Data metric function (scalar function marked with is_data_metric_function) ---
+
+MY_DMF_SQL = """
+SELECT COUNT(*) FROM arg_t WHERE arg_col > 0
+""".strip()
+
+MY_DMF_YML = """
+functions:
+  - name: count_positive
+    description: Count rows with a positive value
+    config:
+      is_data_metric_function: true
+    arguments:
+      - name: arg_t
+        data_type: TABLE(arg_col NUMBER)
+    returns:
+      data_type: NUMBER
+"""
+
+# The function reference in the SQL comment records a DAG dependency. The binding
+# itself names the Snowflake object explicitly, just like a binding in schema YAML.
+MY_DMF_MODEL_SQL = """
+-- depends_on: {{ function('count_positive') }}
+{{ config(
+    materialized='table',
+    data_metric_functions=[{
+        'function': target.database ~ '.' ~ target.schema ~ '.count_positive',
+        'columns': ['amount'],
+    }],
+) }}
+select 1::number as amount union all select -1::number
+""".strip()
+
+MY_DMF_MODEL_YAML_SQL = """
+-- depends_on: {{ function('count_positive') }}
+select 1::number as amount union all select -1::number
+""".strip()
+
+MY_DMF_MODEL_YML = """
+models:
+  - name: yaml_model
+    config:
+      materialized: table
+      data_metric_functions:
+        - function: "{{ target.database }}.{{ target.schema }}.count_positive"
+          columns: [amount]
+"""
+
+MY_DMF_INCREMENTAL_MODEL_YML = """
+models:
+  - name: incremental_model
+    config:
+      materialized: incremental
+      data_metric_functions:
+        - function: "{{ target.database }}.{{ target.schema }}.count_positive"
+          columns: [amount]
+"""
