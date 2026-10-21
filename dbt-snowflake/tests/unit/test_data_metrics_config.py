@@ -181,7 +181,6 @@ class TestDataMetricsConfigFromModel:
             ({"function": "null_count", "columns": ["a"]}, "must be fully qualified"),
             ({"function": "core.null_count", "columns": ["a"]}, "must be fully qualified"),
             ({"function": "snowflake.core.null_count", "columns": "a"}, "expected a list"),
-            # `db..fn` is Snowflake shorthand for db.PUBLIC.fn; metadata reports PUBLIC.
             ({"function": "snowflake..null_count", "columns": ["a"]}, "must be fully qualified"),
             ({"function": 'snowflake.core."open', "columns": []}, "must be fully qualified"),
             ({"function": "snowflake.core.null_count", "columns": [1]}, "identifier string"),
