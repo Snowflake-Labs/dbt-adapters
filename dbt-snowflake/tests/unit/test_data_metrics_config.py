@@ -369,10 +369,8 @@ class TestDataMetricsConfigFromResults:
     @pytest.mark.parametrize(
         "schedule", ["5 MINUTE", "60 MINUTES", "USING CRON 0 6 * * * UTC", "TRIGGER_ON_CHANGES"]
     )
-    def test_schedule_set_on_object(self, schedule):
-        parameters = table_from_data_flat(
-            [{"value": schedule, "level": "TABLE"}], ["value", "level"]
-        )
+    def test_schedule_readback_uses_effective_value(self, schedule):
+        parameters = table_from_data_flat([{"value": schedule}], ["value"])
         config = SnowflakeDataMetricsConfig.from_relation_results(
             _results(schedule_parameters=parameters)
         )
@@ -380,7 +378,7 @@ class TestDataMetricsConfigFromResults:
         assert config.schedule == schedule
 
     def test_non_string_schedule_from_metadata_fails(self):
-        parameters = table_from_data_flat([{"value": 5, "level": "TABLE"}], ["value", "level"])
+        parameters = table_from_data_flat([{"value": 5}], ["value"])
         with pytest.raises(DbtRuntimeError, match="Could not parse DATA_METRIC_SCHEDULE"):
             SnowflakeDataMetricsConfig.from_relation_results(
                 _results(schedule_parameters=parameters)
@@ -392,11 +390,11 @@ class TestDataMetricsConfigFromResults:
         )
         assert config.schedule == ""
 
-    def test_inherited_schedule_is_not_set(self):
+    def test_default_schedule_is_read(self):
         config = SnowflakeDataMetricsConfig.from_relation_results(
             _results(schedule_parameters=_schedule_parameter("60 MINUTES", ""))
         )
-        assert config.schedule is None
+        assert config.schedule == "60 MINUTES"
 
 
 class TestDataMetricsChangeset:
@@ -512,12 +510,19 @@ class TestDataMetricsChangeset:
         assert changeset.adds == []
         assert changeset.drops == []
 
-    def test_inherited_schedule_equal_to_desired_is_still_set(self):
+    def test_default_schedule_equal_to_desired_is_unchanged(self):
         changeset = SnowflakeRelation.data_metrics_config_changeset(
             _results(schedule_parameters=_schedule_parameter("60 MINUTES", "")),
-            _data_metrics(data_metric_schedule="60 MINUTES"),
+            _data_metrics(data_metric_schedule="60 MINUTE"),
         )
-        assert changeset.schedule == "60 MINUTES"
+        assert changeset is None
+
+    def test_default_schedule_different_from_desired_is_changed(self):
+        changeset = SnowflakeRelation.data_metrics_config_changeset(
+            _results(schedule_parameters=_schedule_parameter("60 MINUTES", "")),
+            _data_metrics(data_metric_schedule="5 MINUTE"),
+        )
+        assert changeset.schedule == "5 MINUTE"
 
     def test_functions_configured_but_not_read_fails(self):
         with pytest.raises(DbtRuntimeError, match="were not read"):
