@@ -1,7 +1,6 @@
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, cast
 
 from dbt.adapters.contracts.relation import RelationConfig
@@ -289,16 +288,7 @@ class SnowflakeDataMetricsConfig(SnowflakeRelationConfigBase):
             level = str(parameter.get("level") or "").upper()
             value = parameter.get("value")
             if level in _OBJECT_LEVELS and value is not None:
-                if isinstance(value, timedelta):
-                    seconds = value.total_seconds()
-                    minutes = seconds / 60
-                    if seconds < 0 or not minutes.is_integer():
-                        raise DbtRuntimeError(
-                            "Could not parse DATA_METRIC_SCHEDULE value from "
-                            f"SHOW PARAMETERS: {value!r}"
-                        )
-                    value = f"{int(minutes)} MINUTE"
-                elif not isinstance(value, str):
+                if not isinstance(value, str):
                     raise DbtRuntimeError(
                         "Could not parse DATA_METRIC_SCHEDULE value from "
                         f"SHOW PARAMETERS: {value!r}"
