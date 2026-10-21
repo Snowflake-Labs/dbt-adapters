@@ -2,7 +2,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING, cast
 
 from dbt.adapters.contracts.relation import RelationConfig
 from dbt.adapters.relation_configs import RelationResults
@@ -274,7 +274,7 @@ class SnowflakeDataMetricsConfig(SnowflakeRelationConfigBase):
         references = relation_results.get("function_references")
         functions = None
         if references is not None:
-            references = _lowercase_columns(references)  # type: ignore[arg-type]
+            references = _lowercase_columns(cast("agate.Table", references))
             functions_by_key: Dict[Any, SnowflakeDataMetricFunctionAssociation] = {}
             for row in references.rows:
                 association = SnowflakeDataMetricFunctionAssociation.from_metadata_row(row)
@@ -284,7 +284,7 @@ class SnowflakeDataMetricsConfig(SnowflakeRelationConfigBase):
         parameters = relation_results.get("schedule_parameters")
         schedule = None
         if parameters is not None:
-            parameters = _lowercase_columns(parameters)  # type: ignore[arg-type]
+            parameters = _lowercase_columns(cast("agate.Table", parameters))
             parameter = parameters.rows[0]
             level = str(parameter.get("level") or "").upper()
             value = parameter.get("value")
