@@ -285,8 +285,6 @@ class SnowflakeDataMetricsConfig(SnowflakeRelationConfigBase):
             parameters = _lowercase_columns(cast("agate.Table", parameters))
             parameter = parameters.rows[0]
             value = parameter.get("value")
-            # Compare the effective value, including Snowflake's default,
-            # regardless of whether it was explicitly set on the object.
             if value is not None:
                 if not isinstance(value, str):
                     raise DbtRuntimeError(
