@@ -3,6 +3,7 @@ import json
 import agate
 import pytest
 
+from dbt_common.clients.agate_helper import table_from_data_flat
 from dbt_common.exceptions import DbtConfigError, DbtRuntimeError
 
 from dbt.adapters.snowflake import SnowflakeRelation
@@ -365,11 +366,25 @@ class TestDataMetricsConfigFromResults:
         with pytest.raises(DbtRuntimeError, match="unexpected metric name"):
             SnowflakeDataMetricsConfig.from_relation_results(_results(table))
 
-    def test_schedule_set_on_object(self):
-        config = SnowflakeDataMetricsConfig.from_relation_results(
-            _results(schedule_parameters=_schedule_parameter("5 MINUTE", "TABLE"))
+    @pytest.mark.parametrize(
+        "schedule", ["5 MINUTE", "60 MINUTES", "USING CRON 0 6 * * * UTC", "TRIGGER_ON_CHANGES"]
+    )
+    def test_schedule_set_on_object(self, schedule):
+        parameters = table_from_data_flat(
+            [{"value": schedule, "level": "TABLE"}], ["value", "level"]
         )
-        assert config.schedule == "5 MINUTE"
+        config = SnowflakeDataMetricsConfig.from_relation_results(
+            _results(schedule_parameters=parameters)
+        )
+        assert isinstance(parameters.rows[0]["value"], str)
+        assert config.schedule == schedule
+
+    def test_non_string_schedule_from_metadata_fails(self):
+        parameters = table_from_data_flat([{"value": 5, "level": "TABLE"}], ["value", "level"])
+        with pytest.raises(DbtRuntimeError, match="Could not parse DATA_METRIC_SCHEDULE"):
+            SnowflakeDataMetricsConfig.from_relation_results(
+                _results(schedule_parameters=parameters)
+            )
 
     def test_empty_schedule_on_object_is_kept(self):
         config = SnowflakeDataMetricsConfig.from_relation_results(
