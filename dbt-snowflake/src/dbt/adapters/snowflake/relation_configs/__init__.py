@@ -26,3 +26,4 @@ from dbt.adapters.snowflake.relation_configs.policies import (
     SnowflakeRelationType,
 )
 from dbt.adapters.snowflake.relation_configs.cortex_search import SnowflakeCortexSearchConfig
+from dbt.adapters.snowflake.relation_configs.cortex_agent import SnowflakeCortexAgentConfig

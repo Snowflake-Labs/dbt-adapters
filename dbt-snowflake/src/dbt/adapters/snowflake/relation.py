@@ -18,6 +18,7 @@ from dbt_common.events.functions import fire_event, warn_or_error
 from dbt.adapters.snowflake import constants
 from dbt.adapters.snowflake.relation_configs import (
     RefreshMode,
+    SnowflakeCortexAgentConfig,
     SnowflakeCortexSearchConfig,
     SnowflakeDynamicTableConfig,
     SnowflakeDynamicTableConfigChangeset,
@@ -47,6 +48,7 @@ class SnowflakeRelation(BaseRelation):
     quote_policy: SnowflakeQuotePolicy = field(default_factory=lambda: SnowflakeQuotePolicy())
     require_alias: bool = False
     relation_configs = {
+        SnowflakeRelationType.CortexAgent: SnowflakeCortexAgentConfig,
         SnowflakeRelationType.CortexSearchService: SnowflakeCortexSearchConfig,
         SnowflakeRelationType.DynamicTable: SnowflakeDynamicTableConfig,
         SnowflakeRelationType.InteractiveTable: SnowflakeInteractiveTableConfig,
@@ -86,6 +88,10 @@ class SnowflakeRelation(BaseRelation):
         return self.type == SnowflakeRelationType.CortexSearchService
 
     @property
+    def is_cortex_agent(self) -> bool:
+        return self.type == SnowflakeRelationType.CortexAgent
+
+    @property
     def is_materialized_view(self) -> bool:
         return self.type == SnowflakeRelationType.DynamicTable
 
@@ -104,6 +110,10 @@ class SnowflakeRelation(BaseRelation):
     @classproperty
     def CortexSearchService(cls) -> str:
         return str(SnowflakeRelationType.CortexSearchService)
+
+    @classproperty
+    def CortexAgent(cls) -> str:
+        return str(SnowflakeRelationType.CortexAgent)
 
     @classproperty
     def get_relation_type(cls) -> Type[SnowflakeRelationType]:

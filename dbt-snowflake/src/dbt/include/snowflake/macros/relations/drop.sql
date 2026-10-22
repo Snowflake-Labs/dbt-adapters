@@ -9,6 +9,9 @@
     {% elif relation.is_cortex_search_service %}
         {{ snowflake__get_drop_cortex_search_service_sql(relation) }}
 
+    {% elif relation.is_cortex_agent %}
+        {{ snowflake__get_drop_cortex_agent_sql(relation) }}
+
     {% else %}
         {{ default__get_drop_sql(relation) }}
 
