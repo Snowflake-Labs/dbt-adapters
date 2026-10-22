@@ -112,6 +112,16 @@ class SnowflakeConfig(AdapterConfig):
     tmp_relation_type: Optional[str] = None
     merge_update_columns: Optional[str] = None
     target_lag: Optional[str] = None
+    search_column: Optional[str] = None
+    attributes: Optional[List[str]] = None
+    primary_key: Optional[List[str]] = None
+    embedding_model: Optional[str] = None
+    refresh_mode: Optional[str] = None
+    initialize: Optional[str] = None
+    full_index_build_interval_days: Optional[int] = None
+    request_logging: Optional[bool] = None
+    auto_suspend: Optional[int] = None
+    comment: Optional[str] = None
     scheduler: Optional[str] = None
     row_access_policy: Optional[str] = None
     table_tag: Optional[str] = None
@@ -407,6 +417,21 @@ class SnowflakeAdapter(SQLAdapter):
             column_names=table.column_names,
             column_types=column_types,
         )
+
+    @available
+    def get_cortex_search_service(
+        self, relation: SnowflakeRelation
+    ) -> Optional[SnowflakeRelation]:
+        # SHOW OBJECTS only lists tables and views. Services also have a separate
+        # namespace, so a cached table with the same name is not an existing service.
+        relation = relation.as_case_sensitive()
+        services = self.execute_macro(
+            "snowflake__show_cortex_search_service", kwargs={"relation": relation}
+        )
+        services = services.rename(column_names=[name.lower() for name in services.column_names])
+        if any(row["name"] == relation.identifier for row in services):
+            return relation.incorporate(type=self.Relation.CortexSearchService)
+        return None
 
     def list_relations_without_caching(
         self, schema_relation: SnowflakeRelation
