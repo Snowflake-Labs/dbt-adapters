@@ -44,7 +44,10 @@ select doc_id, doc_name, body, region from {{ ref('support_docs') }}
 AGENT = """
 {{ config(
     materialized='cortex_agent',
-    meta={'display_name': "Bob's Support Bot", 'comment': "Bob's support agent"},
+    profile={'display_name': "Bob's Support Bot", 'avatar': 'support.png', 'color': 'blue'},
+    comment="Bob's support agent",
+    secure=true,
+    copy_grants=true,
 ) }}
 models:
   orchestration: auto
@@ -57,7 +60,7 @@ tools:
       description: "Support articles"
 tool_resources:
   support_docs:
-    name: "{{ ref('support_search') }}"
+    search_service: "{{ ref('support_search') }}"
     max_results: 5
 """
 
@@ -153,10 +156,14 @@ class TestCortexAgentBasic(CortexAgentBase):
         service = relation_from_name(project.adapter, "support_search")
         assert service.identifier.upper() in live_spec(project, "support_agent").upper()
 
-    def test_comment_and_profile_from_meta(self, project):
+    def test_comment_and_profile_from_config(self, project):
         agent = show_agent(project, "support_agent")
         assert agent["comment"] == "Bob's support agent"
-        assert json.loads(agent["profile"])["display_name"] == "Bob's Support Bot"
+        assert json.loads(agent["profile"]) == {
+            "display_name": "Bob's Support Bot",
+            "avatar": "support.png",
+            "color": "blue",
+        }
 
     def test_comment_and_profile_defaults(self, project):
         agent = show_agent(project, "plain_agent")
@@ -170,7 +177,7 @@ class TestCortexAgentSpecChange(CortexAgentBase):
 
         update_model(project, "support_agent", AGENT_SPEC_CHANGE)
         _, logs = run_dbt_and_capture(["--debug", "run", "--select", "support_agent"])
-        assert_message_in_logs("create or alter agent", logs)
+        assert_message_in_logs("modify live version set specification", logs)
 
         assert show_agent(project, "support_agent")["created_on"] == created_on
         assert live_versions(project, "support_agent")
@@ -178,10 +185,11 @@ class TestCortexAgentSpecChange(CortexAgentBase):
             project, "support_agent"
         )
 
-    def test_full_refresh_still_alters_in_place(self, project):
+    def test_full_refresh_replaces_with_copy_grants(self, project):
         created_on = show_agent(project, "support_agent")["created_on"]
         _, logs = run_dbt_and_capture(
             ["--debug", "run", "--select", "support_agent", "--full-refresh"]
         )
-        assert_message_in_logs("create or alter agent", logs)
-        assert show_agent(project, "support_agent")["created_on"] == created_on
+        assert_message_in_logs("create or replace agent", logs)
+        assert_message_in_logs("copy grants", logs)
+        assert show_agent(project, "support_agent")["created_on"] != created_on

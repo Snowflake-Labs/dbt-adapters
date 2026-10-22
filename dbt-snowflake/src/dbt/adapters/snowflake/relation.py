@@ -18,6 +18,7 @@ from dbt_common.events.functions import fire_event, warn_or_error
 from dbt.adapters.snowflake import constants
 from dbt.adapters.snowflake.relation_configs import (
     RefreshMode,
+    SnowflakeCortexAgentConfig,
     SnowflakeCortexSearchConfig,
     SnowflakeDynamicTableConfig,
     SnowflakeDynamicTableConfigChangeset,
@@ -47,6 +48,7 @@ class SnowflakeRelation(BaseRelation):
     quote_policy: SnowflakeQuotePolicy = field(default_factory=lambda: SnowflakeQuotePolicy())
     require_alias: bool = False
     relation_configs = {
+        SnowflakeRelationType.CortexAgent: SnowflakeCortexAgentConfig,
         SnowflakeRelationType.CortexSearchService: SnowflakeCortexSearchConfig,
         SnowflakeRelationType.DynamicTable: SnowflakeDynamicTableConfig,
         SnowflakeRelationType.InteractiveTable: SnowflakeInteractiveTableConfig,

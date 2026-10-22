@@ -9,9 +9,9 @@
         {% do exceptions.raise_compiler_error("Cortex Agent model " ~ this ~ ": the agent specification must not contain `$$`, which ends the dollar-quoted FROM SPECIFICATION body.") %}
     {% endif %}
 
-    {% set display_name = config.meta_get('display_name') or this.identifier %}
-    {% set comment = config.meta_get('comment') or model.description %}
-    {% set role = config.meta_get('role') %}
+    {% set agent = target_relation.from_config(config.model) %}
+    {% set full_refresh_mode = should_full_refresh() %}
+    {% set role = agent.role %}
 
     {% set query_tag = set_query_tag() %}
 
@@ -24,24 +24,25 @@
         {%- endcall %}
     {% endif %}
 
+    {% set existing_relation = adapter.get_cortex_agent(target_relation) %}
+
     {% call statement('main') -%}
-        create or alter agent {{ target_relation }}
-        {%- if comment %}
-        comment = '{{ cortex_agent_string_literal(comment) }}'
-        {%- endif %}
-        {%- if display_name %}
-        profile = '{{ cortex_agent_string_literal({'display_name': display_name} | tojson) }}'
-        {%- endif %}
-        from specification
-$$
-{{ sql }}
-$$
+        {% if existing_relation is none or full_refresh_mode %}
+            {{ snowflake__get_create_cortex_agent_sql(agent, target_relation, sql, full_refresh_mode) }}
+        {% else %}
+            {{ snowflake__get_alter_cortex_agent_sql(target_relation, sql) }}
+        {% endif %}
     {%- endcall %}
+
+    {% if existing_relation is not none and not full_refresh_mode %}
+        {% call statement('agent_properties') -%}
+            {{ snowflake__get_alter_cortex_agent_properties_sql(agent, target_relation) }}
+        {%- endcall %}
+    {% endif %}
 
     {{ run_hooks(post_hooks) }}
 
-    {# CREATE OR ALTER retains grants; the agent exists after the main statement. #}
-    {% do apply_grants(target_relation, config.get('grants'), should_revoke=True) %}
+    {% do apply_grants(target_relation, config.get('grants'), should_revoke=should_revoke(existing_relation, full_refresh_mode=full_refresh_mode)) %}
 
     {% if role %}
         {% call statement('restore_role') -%}
@@ -54,10 +55,3 @@ $$
     {{ return({'relations': [target_relation]}) }}
 
 {% endmaterialization %}
-
-
-{#- Body of a single-quoted Snowflake string literal. Backslashes are doubled too, since
-    Snowflake reads backslash escapes in these literals (tojson output has `\"`). -#}
-{%- macro cortex_agent_string_literal(value) -%}
-    {{- value | string | replace('\\', '\\\\') | replace("'", "''") -}}
-{%- endmacro -%}

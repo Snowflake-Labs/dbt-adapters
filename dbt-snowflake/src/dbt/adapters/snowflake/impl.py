@@ -122,6 +122,7 @@ class SnowflakeConfig(AdapterConfig):
     request_logging: Optional[bool] = None
     auto_suspend: Optional[int] = None
     comment: Optional[str] = None
+    profile: Optional[Dict[str, str]] = None
     scheduler: Optional[str] = None
     row_access_policy: Optional[str] = None
     table_tag: Optional[str] = None
@@ -431,6 +432,15 @@ class SnowflakeAdapter(SQLAdapter):
         services = services.rename(column_names=[name.lower() for name in services.column_names])
         if any(row["name"] == relation.identifier for row in services):
             return relation.incorporate(type=self.Relation.CortexSearchService)
+        return None
+
+    @available
+    def get_cortex_agent(self, relation: SnowflakeRelation) -> Optional[SnowflakeRelation]:
+        relation = relation.as_case_sensitive()
+        agents = self.execute_macro("snowflake__show_cortex_agent", kwargs={"relation": relation})
+        agents = agents.rename(column_names=[name.lower() for name in agents.column_names])
+        if any(row["name"] == relation.identifier for row in agents):
+            return relation.incorporate(type=self.Relation.CortexAgent)
         return None
 
     def list_relations_without_caching(

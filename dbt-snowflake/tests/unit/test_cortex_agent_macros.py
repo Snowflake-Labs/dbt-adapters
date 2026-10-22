@@ -3,11 +3,16 @@ import os
 import re
 import unittest
 from unittest import mock
+from types import SimpleNamespace
+
+import pytest
+from dbt_common.exceptions import CompilationError
 
 from dbt_common.clients.jinja import MaterializationExtension
 from jinja2 import Environment, FileSystemLoader
 
 from dbt.adapters.snowflake.relation import SnowflakeRelation
+from dbt.include.global_project import PACKAGE_PATH as GLOBAL_PROJECT_PATH
 
 MACROS_DIR = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "../../src/dbt/include/snowflake/macros")
@@ -16,7 +21,7 @@ MACROS_DIR = os.path.normpath(
 SPEC = (
     "models:\n  orchestration: auto\ninstructions:\n  response: 'Answer briefly.'\n"
     "tools:\n  - tool_spec:\n      type: cortex_search\n      name: docs\n"
-    "tool_resources:\n  docs:\n    name: test_db.test_schema.docs_search"
+    "tool_resources:\n  docs:\n    search_service: test_db.test_schema.docs_search"
 )
 RELATION = "test_db.test_schema.test_agent"
 
@@ -98,9 +103,59 @@ class TestCortexAgentMaterialization(_MacroTestBase):
                 "apply_grants": mock.Mock(),
             }
         )
-        self.context["config"].get = {"grants": self.grants}.get
+        self.config_values = {
+            "grants": self.grants,
+            "meta": self.meta,
+            "materialized": "cortex_agent",
+        }
+        self.context["config"].get = self.config_values.get
+        self.context["model"] = SimpleNamespace(
+            identifier="test_agent",
+            description="",
+            config=SimpleNamespace(get=self.config_values.get, materialized="cortex_agent"),
+        )
+        self.context["config"].model = self.context["model"]
+        self.context["adapter"].get_cortex_agent.return_value = None
+        self.context["optional"] = lambda *args: self.module("utils/optional.sql").optional(*args)
+        self.context["snowflake__cortex_agent_properties_sql"] = lambda *args: self.module(
+            "relations/cortex_agent/create.sql"
+        ).snowflake__cortex_agent_properties_sql(*args)
+        for name, filename in (
+            ("snowflake__get_create_cortex_agent_sql", "create.sql"),
+            ("snowflake__get_alter_cortex_agent_sql", "alter.sql"),
+            ("snowflake__get_alter_cortex_agent_properties_sql", "alter.sql"),
+        ):
+            self.context[name] = lambda *args, name=name, filename=filename: getattr(
+                self.module("relations/cortex_agent/" + filename), name
+            )(*args)
+
         self.context["adapter"].quote = lambda value: '"' + value.replace('"', '""') + '"'
-        self.context["config"].meta_get = lambda key, default=None: self.meta.get(key, default)
+        with open(os.path.join(GLOBAL_PROJECT_PATH, "macros/utils/literal.sql")) as f:
+            literal_macros = self.jinja_env.from_string(f.read()).make_module(self.context)
+        with open(os.path.join(GLOBAL_PROJECT_PATH, "macros/utils/escape_single_quotes.sql")) as f:
+            escape_macros = self.jinja_env.from_string(f.read()).make_module(self.context)
+        dispatched_macros = {
+            "string_literal": literal_macros.default__string_literal,
+            "escape_single_quotes": self.module(
+                "utils/escape_single_quotes.sql"
+            ).snowflake__escape_single_quotes,
+        }
+        self.context["adapter"].dispatch.side_effect = lambda name, package: dispatched_macros[
+            name
+        ]
+
+        def invoke_macro(macro, value):
+            try:
+                return macro(value)
+            except _MacroReturn as returned:
+                return returned.value
+
+        self.context["dbt"] = SimpleNamespace(
+            string_literal=lambda value: invoke_macro(literal_macros.string_literal, value),
+            escape_single_quotes=lambda value: invoke_macro(
+                escape_macros.escape_single_quotes, value
+            ),
+        )
 
     def statement(self, name, caller=None, **kwargs):
         self.statements.append((name, caller()))
@@ -129,7 +184,7 @@ class TestCortexAgentMaterialization(_MacroTestBase):
     def test_ddl_without_comment(self):
         result = self.run_materialization()
         assert _squash(self.main_sql()) == _squash(
-            f"create or alter agent {RELATION} "
+            f"create agent {RELATION} "
             """profile = '{"display_name": "test_agent"}' """
             f"from specification $$ {SPEC} $$"
         )
@@ -138,13 +193,13 @@ class TestCortexAgentMaterialization(_MacroTestBase):
 
     def test_spec_is_passed_verbatim_in_dollar_quotes(self):
         self.run_materialization()
-        assert self.main_sql().endswith(f"from specification\n$$\n{SPEC}\n$$")
+        assert f"from specification\n$$\n{SPEC}\n$$" in self.main_sql()
 
     def test_ddl_with_comment_and_display_name(self):
         self.meta.update({"comment": "Support agent", "display_name": "Support Bot"})
         self.run_materialization()
         assert _squash(self.main_sql()) == _squash(
-            f"create or alter agent {RELATION} comment = 'Support agent' "
+            f"create agent {RELATION} comment = 'Support agent' "
             """profile = '{"display_name": "Support Bot"}' """
             f"from specification $$ {SPEC} $$"
         )
@@ -168,7 +223,7 @@ class TestCortexAgentMaterialization(_MacroTestBase):
     def test_comment_quotes_are_escaped(self):
         self.meta["comment"] = "It's Bob's agent"
         self.run_materialization()
-        assert "comment = 'It''s Bob''s agent'" in self.main_sql()
+        assert _snowflake_literal(self.main_sql(), "comment") == "It's Bob's agent"
         assert _snowflake_literal(self.main_sql(), "comment") == "It's Bob's agent"
 
     def test_comment_backslashes_are_escaped(self):
@@ -181,9 +236,6 @@ class TestCortexAgentMaterialization(_MacroTestBase):
         display_name = 'Bob\'s "support" <bot> \\ agent'
         self.meta["display_name"] = display_name
         self.run_materialization()
-        literal = re.search(r"profile = '([^\n]*)'\n", self.main_sql()).group(1)
-        # The literal body is a single-quoted Snowflake string: no lone quote ends it early.
-        assert "'" not in literal.replace("''", "")
         profile = json.loads(_snowflake_literal(self.main_sql(), "profile"))
         assert profile == {"display_name": display_name}
 
@@ -202,7 +254,7 @@ class TestCortexAgentMaterialization(_MacroTestBase):
         assert [name for name, _ in self.statements] == ["use_role", "main", "restore_role"]
         assert _squash(self.statements[0][1]) == "use role agent_owner"
         assert "use role" not in self.statements[1][1]
-        assert self.statements[1][1].lstrip().startswith("create or alter agent")
+        assert self.statements[1][1].lstrip().startswith("create agent")
         assert _squash(self.statements[2][1]) == 'use role "original_role"'
 
     def test_restored_role_is_quoted(self):
@@ -216,33 +268,75 @@ class TestCortexAgentMaterialization(_MacroTestBase):
         assert "use role" not in self.main_sql()
         self.context["run_query"].assert_not_called()
 
-    def test_full_refresh_still_creates_or_alters(self):
+    def test_full_refresh_replaces_agent(self):
         self.context["should_full_refresh"].return_value = True
         self.run_materialization()
         sql = self.main_sql()
-        assert sql.lstrip().startswith(f"create or alter agent {RELATION}")
-        assert "replace" not in sql
+        assert sql.lstrip().startswith(f"create or replace agent {RELATION}")
 
     def test_grants_applied_to_agent(self):
         existing = _relation(type=SnowflakeRelation.CortexAgent)
-        self.context["load_cached_relation"].return_value = existing
+        self.context["adapter"].get_cortex_agent.return_value = existing
+        self.context["should_revoke"].return_value = True
         self.run_materialization()
-
-        self.context["should_revoke"].assert_not_called()
+        self.context["adapter"].get_cortex_agent.assert_called_once()
+        discovered = self.context["adapter"].get_cortex_agent.call_args.args[0]
+        assert discovered.is_cortex_agent
+        assert discovered.render() == RELATION
+        self.context["should_revoke"].assert_called_once_with(existing, full_refresh_mode=False)
         self.context["load_cached_relation"].assert_not_called()
-        self.context["apply_grants"].assert_called_once()
         relation, grant_config = self.context["apply_grants"].call_args.args
         assert relation.is_cortex_agent
         assert grant_config == self.grants
         assert self.context["apply_grants"].call_args.kwargs == {"should_revoke": True}
 
-    def test_grants_reconcile_without_cached_agent_even_on_full_refresh(self):
-        for full_refresh in (False, True):
-            with self.subTest(full_refresh=full_refresh):
-                self.context["should_full_refresh"].return_value = full_refresh
-                self.run_materialization()
-                assert self.context["apply_grants"].call_args.kwargs == {"should_revoke": True}
-        self.context["load_cached_relation"].assert_not_called()
+    def test_existing_agent_updates_specification_and_metadata(self):
+        self.context["adapter"].get_cortex_agent.return_value = _relation(
+            type=SnowflakeRelation.CortexAgent
+        )
+        self.config_values.update(
+            secure=False,
+            comment="",
+            profile={"display_name": "Support Bot", "avatar": "support.png", "color": "blue"},
+        )
+        self.run_materialization()
+        assert [name for name, _ in self.statements] == ["main", "agent_properties"]
+        assert _squash(self.statements[0][1]) == _squash(
+            f"alter agent {RELATION} modify live version set specification = $$ {SPEC} $$"
+        )
+        properties = self.statements[1][1]
+        assert properties.lstrip().startswith(f"alter agent {RELATION} set")
+        assert "secure FALSE" not in properties
+        assert "secure = FALSE" in properties
+        assert _snowflake_literal(properties, "comment") == ""
+        assert (
+            json.loads(_snowflake_literal(properties, "profile")) == self.config_values["profile"]
+        )
+        assert "copy grants" not in properties
+
+    def test_discovery_runs_under_selected_role(self):
+        self.meta["role"] = "agent_owner"
+
+        def discover(relation):
+            assert [name for name, _ in self.statements] == ["use_role"]
+            return None
+
+        self.context["adapter"].get_cortex_agent.side_effect = discover
+        self.run_materialization()
+
+    def test_show_agent_quotes_identifier_and_schema(self):
+        relation = SnowflakeRelation.create(
+            database="Test DB",
+            schema="Test Schema",
+            identifier="Bob's Agent",
+            quote_policy={"database": True, "schema": True, "identifier": True},
+        )
+        with self.assertRaises(_MacroReturn):
+            self.module("relations/cortex_agent/show.sql").snowflake__show_cortex_agent(relation)
+        query = self.context["run_query"].call_args.args[0]
+        assert _squash(query) == (
+            "show agents like 'Bob\\'s Agent' " 'in schema "Test DB"."Test Schema"'
+        )
 
     def test_grants_render_agent_grant_sql(self):
         """The relation handed to apply_grants renders the agent grant DCL."""
@@ -322,3 +416,88 @@ class TestCortexAgentGrantMacros(_MacroTestBase):
         assert _squash(self.grants.snowflake__get_grant_sql(service, "usage", ["r"])) == (
             f"grant usage on cortex search service {RELATION} to r"
         )
+
+
+@pytest.mark.parametrize("existing", [False, True])
+@pytest.mark.parametrize("full_refresh", [False, True])
+@pytest.mark.parametrize("copy_grants", [False, True])
+def test_agent_lifecycle_and_grant_reconciliation(existing, full_refresh, copy_grants):
+    test = TestCortexAgentMaterialization()
+    test.setUp()
+    relation = _relation(type=SnowflakeRelation.CortexAgent) if existing else None
+    test.context["adapter"].get_cortex_agent.return_value = relation
+    test.context["should_full_refresh"].return_value = full_refresh
+    test.config_values["copy_grants"] = copy_grants
+    with open(os.path.join(GLOBAL_PROJECT_PATH, "macros/adapters/apply_grants.sql")) as f:
+        shared = test.jinja_env.from_string(f.read()).make_module(
+            {
+                "return": _raise_return,
+                "adapter": SimpleNamespace(dispatch=lambda name, package: lambda: copy_grants),
+            }
+        )
+
+    def should_revoke(*args, **kwargs):
+        try:
+            shared.should_revoke(*args, **kwargs)
+        except _MacroReturn as returned:
+            return returned.value
+
+    test.context["should_revoke"] = should_revoke
+    test.run_materialization()
+    main = _squash(test.statements[0][1])
+    if full_refresh:
+        assert main.startswith(f"create or replace agent {RELATION}")
+    elif existing:
+        assert main.startswith(f"alter agent {RELATION} modify live version")
+        assert [name for name, _ in test.statements] == ["main", "agent_properties"]
+    else:
+        assert main.startswith(f"create agent {RELATION}")
+    assert ("copy grants" in main) == (full_refresh and copy_grants)
+    assert "create or alter" not in main
+    assert test.context["apply_grants"].call_args.kwargs == {
+        "should_revoke": existing and (not full_refresh or copy_grants)
+    }
+
+
+@pytest.mark.parametrize("secure", [False, True])
+def test_secure_option_is_rendered_on_create(secure):
+    test = TestCortexAgentMaterialization()
+    test.setUp()
+    test.config_values["secure"] = secure
+    test.run_materialization()
+    assert f"secure = {str(secure).upper()}" in test.main_sql()
+
+
+@pytest.mark.parametrize(
+    "name,value",
+    [
+        ("secure", "true"),
+        ("secure", 0),
+        ("copy_grants", "false"),
+        ("copy_grants", 1),
+        ("profile", "Support Bot"),
+        ("profile", []),
+        ("profile", {"color": 123}),
+        ("comment", 123),
+    ],
+)
+def test_invalid_agent_config_fails_before_hooks(name, value):
+    test = TestCortexAgentMaterialization()
+    test.setUp()
+    test.config_values[name] = value
+    with pytest.raises(CompilationError, match=name):
+        test.run_materialization()
+    assert test.statements == []
+    test.context["run_hooks"].assert_not_called()
+    test.context["set_query_tag"].assert_not_called()
+
+
+def test_top_level_metadata_overrides_legacy_meta_and_preserves_empty_values():
+    test = TestCortexAgentMaterialization()
+    test.setUp()
+    test.context["model"].description = "From schema.yml"
+    test.meta.update(comment="From meta", display_name="Legacy display name")
+    test.config_values.update(comment="", profile={})
+    test.run_materialization()
+    assert _snowflake_literal(test.main_sql(), "comment") == ""
+    assert json.loads(_snowflake_literal(test.main_sql(), "profile")) == {}
