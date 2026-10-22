@@ -84,6 +84,10 @@ class SnowflakeRelation(BaseRelation):
         return self.type == SnowflakeRelationType.CortexSearchService
 
     @property
+    def is_cortex_agent(self) -> bool:
+        return self.type == SnowflakeRelationType.CortexAgent
+
+    @property
     def is_materialized_view(self) -> bool:
         return self.type == SnowflakeRelationType.DynamicTable
 
@@ -102,6 +106,10 @@ class SnowflakeRelation(BaseRelation):
     @classproperty
     def CortexSearchService(cls) -> str:
         return str(SnowflakeRelationType.CortexSearchService)
+
+    @classproperty
+    def CortexAgent(cls) -> str:
+        return str(SnowflakeRelationType.CortexAgent)
 
     @classproperty
     def get_relation_type(cls) -> Type[SnowflakeRelationType]:

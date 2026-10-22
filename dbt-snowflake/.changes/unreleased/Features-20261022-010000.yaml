@@ -1,0 +1,6 @@
+kind: Features
+body: Support Cortex Agent models with YAML specifications, metadata, grants, and dependency ordering through ref().
+time: 2026-10-22T01:00:00+00:00
+custom:
+  Author: sfc-gh-zgong
+  Issue: ""
