@@ -13,7 +13,6 @@ class SnowflakeCortexAgentConfig(SnowflakeRelationConfigBase):
     comment: Optional[str] = None
     secure: Optional[bool] = None
     copy_grants: bool = False
-    role: Optional[str] = None
 
     @classmethod
     def parse_relation_config(cls, relation_config: RelationConfig) -> Dict[str, Any]:
@@ -33,7 +32,6 @@ class SnowflakeCortexAgentConfig(SnowflakeRelationConfigBase):
             "comment": comment,
             "secure": config.get("secure") if config else None,
             "copy_grants": config.get("copy_grants") if config else None,
-            "role": meta.get("role"),
         }
 
     def __post_init__(self) -> None:
@@ -48,5 +46,3 @@ class SnowflakeCortexAgentConfig(SnowflakeRelationConfigBase):
             for key, value in self.profile.items()
         ):
             raise CompilationError("cortex_agent `profile` must be an object with string values.")
-        if self.role is not None and (not isinstance(self.role, str) or not self.role.strip()):
-            raise CompilationError("cortex_agent `meta.role` must be a non-empty string.")

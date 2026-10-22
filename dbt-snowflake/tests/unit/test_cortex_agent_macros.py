@@ -98,7 +98,7 @@ class TestCortexAgentMaterialization(_MacroTestBase):
                 "load_cached_relation": mock.Mock(return_value=None),
                 "run_hooks": mock.Mock(return_value=""),
                 "statement": self.statement,
-                "run_query": mock.Mock(return_value=mock.Mock(rows=[["original_role"]])),
+                "run_query": mock.Mock(),
                 "should_revoke": mock.Mock(return_value=False),
                 "apply_grants": mock.Mock(),
             }
@@ -248,22 +248,7 @@ class TestCortexAgentMaterialization(_MacroTestBase):
             self.context["sql"] = empty
             self.assert_raises_before_any_statement("non-empty agent specification")
 
-    def test_role_runs_use_role_first(self):
-        self.meta["role"] = "agent_owner"
-        self.run_materialization()
-        assert [name for name, _ in self.statements] == ["use_role", "main", "restore_role"]
-        assert _squash(self.statements[0][1]) == "use role agent_owner"
-        assert "use role" not in self.statements[1][1]
-        assert self.statements[1][1].lstrip().startswith("create agent")
-        assert _squash(self.statements[2][1]) == 'use role "original_role"'
-
-    def test_restored_role_is_quoted(self):
-        self.meta["role"] = "agent_owner"
-        self.context["run_query"].return_value = mock.Mock(rows=[['Original "Role"']])
-        self.run_materialization()
-        assert _squash(self.statements[-1][1]) == 'use role "Original ""Role"""'
-
-    def test_no_role_no_use_role(self):
+    def test_uses_connection_role(self):
         self.run_materialization()
         assert "use role" not in self.main_sql()
         self.context["run_query"].assert_not_called()
@@ -313,16 +298,6 @@ class TestCortexAgentMaterialization(_MacroTestBase):
             json.loads(_snowflake_literal(properties, "profile")) == self.config_values["profile"]
         )
         assert "copy grants" not in properties
-
-    def test_discovery_runs_under_selected_role(self):
-        self.meta["role"] = "agent_owner"
-
-        def discover(relation):
-            assert [name for name, _ in self.statements] == ["use_role"]
-            return None
-
-        self.context["adapter"].get_cortex_agent.side_effect = discover
-        self.run_materialization()
 
     def test_show_agent_quotes_identifier_and_schema(self):
         relation = SnowflakeRelation.create(

@@ -31,16 +31,12 @@ def test_metadata_defaults_and_unset_secure():
     assert agent.comment == "From schema.yml"
     assert agent.secure is None
     assert agent.copy_grants is False
-    assert agent.role is None
 
 
-def test_legacy_meta_fallback_and_role():
-    agent = agent_config(
-        meta={"display_name": "Legacy Bot", "comment": "Legacy comment", "role": "OWNER"}
-    )
+def test_legacy_meta_fallback():
+    agent = agent_config(meta={"display_name": "Legacy Bot", "comment": "Legacy comment"})
     assert agent.profile == {"display_name": "Legacy Bot"}
     assert agent.comment == "Legacy comment"
-    assert agent.role == "OWNER"
 
 
 def test_explicit_top_level_metadata_wins():

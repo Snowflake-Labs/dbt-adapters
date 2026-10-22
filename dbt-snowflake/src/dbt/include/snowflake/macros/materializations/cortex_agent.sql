@@ -11,18 +11,10 @@
 
     {% set agent = target_relation.from_config(config.model) %}
     {% set full_refresh_mode = should_full_refresh() %}
-    {% set role = agent.role %}
 
     {% set query_tag = set_query_tag() %}
 
     {{ run_hooks(pre_hooks) }}
-
-    {% if role %}
-        {% set original_role = run_query('select current_role()').rows[0][0] %}
-        {% call statement('use_role') -%}
-            use role {{ role }}
-        {%- endcall %}
-    {% endif %}
 
     {% set existing_relation = adapter.get_cortex_agent(target_relation) %}
 
@@ -43,12 +35,6 @@
     {{ run_hooks(post_hooks) }}
 
     {% do apply_grants(target_relation, config.get('grants'), should_revoke=should_revoke(existing_relation, full_refresh_mode=full_refresh_mode)) %}
-
-    {% if role %}
-        {% call statement('restore_role') -%}
-            use role {{ adapter.quote(original_role) }}
-        {%- endcall %}
-    {% endif %}
 
     {% do unset_query_tag(query_tag) %}
 
