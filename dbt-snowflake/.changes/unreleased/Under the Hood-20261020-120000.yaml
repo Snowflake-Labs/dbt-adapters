@@ -1,0 +1,5 @@
+kind: Under the Hood
+body: Skip split_statements in _split_queries when the SQL has no ';' or line-leading '!', which avoids seconds of per-character scanning on large single-statement inserts such as Elementary's on-run-end results.
+time: 2026-10-20T12:00:00.000000-07:00
+custom:
+    Author: sfc-gh-nijain
