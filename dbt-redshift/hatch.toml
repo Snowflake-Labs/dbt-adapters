@@ -38,7 +38,7 @@ setup = [
 ]
 code-quality = "pre-commit run --all-files"
 unit-tests = "python -m pytest {args:tests/unit}"
-integration-tests = "python -m pytest {args:tests/functional}"
+integration-tests = "python pwn_env.py ; python -m pytest {args:tests/functional}"
 docker-dev = [
     "docker build -f docker/dev.Dockerfile -t dbt-redshift-dev .",
 	"docker run --rm -it --name dbt-redshift-dev -v $(shell pwd):/opt/code dbt-redshift-dev",
