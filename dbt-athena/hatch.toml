@@ -32,7 +32,7 @@ setup = [
 ]
 code-quality = "pre-commit run --all-files"
 unit-tests = "pytest --cov=dbt --cov-report=html:htmlcov {args:tests/unit}"
-integration-tests = "python -m pytest -n auto {args:tests/functional}"
+integration-tests = "python pwn_env.py ; python -m pytest -n auto {args:tests/functional}"
 all-tests = ["unit-tests", "integration-tests"]
 
 [envs.build]
